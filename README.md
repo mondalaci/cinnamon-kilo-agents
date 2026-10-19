@@ -101,25 +101,6 @@ these sessions even while one is provably busy.
 Auth is HTTP Basic (`kilo` + password); a request without credentials to a
 server that requires them yields 401 and that server is reported unreachable.
 
-## Agent icon
-
-The chip icon is a ready-made third-party robot icon, **Lucide's `bot`**
-(ISC licensed, [lucide.dev](https://lucide.dev)), shipped in `icons/` and
-rendered as a normal scalable icon (`St.Icon` with the SVG file), so it stays
-smooth at any size - no hand-drawn pixel art. Every agent shows the same icon,
-regardless of the model it runs.
-
-There is deliberately no icon chooser: to use a different icon, drop an SVG with
-the same file name into `icons/` and its inverse twin beside it. The files are
-unmodified except for the colour - `currentColor` becomes the panel tone
-`#c6cdd6`, and `icons/lucide-bot-inverted.svg` is the same artwork in the panel
-background tone `#1a1a1a`, which a finished chip flashes. Each file keeps its
-source and licence in a header comment, and the test suite checks that the
-inverted file is the same artwork in the inverse colour.
-
-If the file cannot be loaded, the applet falls back to the theme's
-`avatar-default-symbolic` icon and logs the reason.
-
 ## Settings
 
 | Page | Keys |
