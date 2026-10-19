@@ -69,7 +69,14 @@ cat > "$STATE_B" <<JSON
   "sessions": [
     {"id": "ses_retry_b", "directory": "$WORK/proj-b", "status": {"type": "retry", "attempt": 2, "message": "rate limited", "next": 2000}, "title": "Retry the upload", "agent": "code"},
     {"id": "ses_offline_c", "directory": "$WORK/proj-b", "status": {"type": "offline", "requestID": "que_1", "message": "which file?"}, "title": "Waiting for input", "agent": "ask"},
+    {"id": "ses_question_f", "directory": "$WORK/proj-b", "status": {"type": "busy"}, "title": "Pick a colour", "agent": "ask"},
+    {"id": "ses_question_g", "directory": "$WORK/proj-b", "status": {"type": "idle"}, "title": "Ask then idle", "agent": "ask"},
     {"id": "ses_shared_x", "directory": "$WORK/proj-a", "status": {"type": "busy"}, "title": "Seen by two servers", "agent": "code"}
+  ],
+  "questions": [
+    {"id": "que_f", "sessionID": "ses_question_f", "header": "Which colour?", "question": "Red or blue?"},
+    {"id": "que_g", "sessionID": "ses_question_g", "header": "Still there?", "question": "Should I continue?"},
+    {"id": "que_x", "sessionID": "ses_shared_x", "header": "Shared ask", "question": "Which side wins?"}
   ]
 }
 JSON

@@ -157,6 +157,17 @@ var KiloClient = class KiloClient {
         return data;
     }
 
+    // [{ id, sessionID, questions: [{ header, question, options }], tool }]
+    // Sessions that stopped and wait for the user to answer. This is a different
+    // thing from the status `offline` (which is the network-reconnect wait):
+    // only the question store knows about it. The endpoint is instance-scoped
+    // like /session/status, so it takes the same directory; a server that has no
+    // /question answers 404 and the caller treats that as "no questions".
+    async questions(directory) {
+        let data = await this.getJson("/question", directory ? { directory: directory } : {});
+        return Array.isArray(data) ? data : [];
+    }
+
     // [{ id, title, agent, model: {id, providerID}, location: {directory}, ... }]
     async sessions(directory, limit) {
         let data = await this.getJson("/api/session", {

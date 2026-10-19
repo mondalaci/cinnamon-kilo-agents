@@ -4,8 +4,12 @@
     spacing: 8px;
 }
 
+/* The padding belongs to every chip, not to the highlight: a style class that
+   comes and goes with the blink must never change the chip's size, or the row
+   would shuffle on every frame. */
 .kilo-agents-chip {
     spacing: 4px;
+    padding: 0 4px;
 }
 
 .kilo-agents-chip-title {
@@ -27,5 +31,13 @@
 
 .kilo-agents-chip-inverted {
     background-color: #c6cdd6;
+    border-radius: 4px;
+}
+
+/* A session that stopped and waits for an answer: an amber chip the applet
+   blinks until the question is answered. Only colours change here - the
+   padding comes from .kilo-agents-chip, so blinking does not move the row. */
+.kilo-agents-chip-question {
+    background-color: #f5c451;
     border-radius: 4px;
 }

@@ -97,6 +97,13 @@ function testFormat() {
     equal("format: modelLabel strips provider", Format.modelLabel({ id: "openrouter/deepseek/deepseek-v4.1-flash" }), "deepseek-v4.1-flash");
     equal("format: modelLabel of string", Format.modelLabel("openrouter/deepseek/deepseek-v4.1-flash"), "deepseek-v4.1-flash");
     equal("format: statusText", Format.statusText("retry"), "retrying");
+    equal("format: statusText of a question", Format.statusText("question"), "awaiting your answer");
+    equal("format: statusText of offline", Format.statusText("offline"), "reconnecting");
+    equal("format: question detail", Format.statusDetail({ statusType: "question", question: "Red or blue?" }),
+        "awaiting your answer: Red or blue?");
+    equal("format: question detail without text", Format.statusDetail({ statusType: "question" }), "awaiting your answer");
+    equal("format: offline detail", Format.statusDetail({ statusType: "offline", message: "socket closed" }),
+        "reconnecting: socket closed");
     equal("format: elapsed seconds", Format.elapsed(4200), "4s");
     equal("format: elapsed minutes", Format.elapsed(125000), "2m");
     equal("format: elapsed hours", Format.elapsed(3700000), "1h1m");
@@ -116,6 +123,20 @@ function testFormat() {
     check("format: tooltip mentions counts", tooltip.indexOf("2 active (1 working, 1 retrying)") >= 0, tooltip);
     check("format: tooltip lists the session", tooltip.indexOf("Fix the widget") >= 0, tooltip);
     check("format: tooltip shows the project", tooltip.indexOf("projects/example") >= 0, tooltip);
+
+    let askedModel = {
+        active: 2, question: 1, busy: 0, retry: 0, offline: 1,
+        servers: [{ id: "127.0.0.1:1", ok: true }],
+        sessions: [
+            { title: "Pick a colour", statusType: "question", question: "Red or blue?" },
+            { title: "Reconnecting", statusType: "offline", message: "socket closed" },
+        ],
+        errors: [],
+    };
+    let asked = Format.tooltipText(askedModel, { maxLines: 5 });
+    check("format: tooltip counts questions first",
+        asked.indexOf("2 active (1 awaiting your answer, 1 reconnecting)") >= 0, asked);
+    check("format: tooltip shows the question", asked.indexOf("awaiting your answer: Red or blue?") >= 0, asked);
 }
 
 // ------------------------------------------------------------ agent icons
@@ -154,6 +175,27 @@ function testAgentIcon() {
     check("icons: no icon chooser in the settings", schema["agent-icon"] === undefined, Object.keys(schema).join(","));
     check("icons: the panel page does not list one",
         schema.layout["section-chips"].keys.indexOf("agent-icon") < 0, schema.layout["section-chips"].keys.join(","));
+}
+
+// ------------------------------------------------------- waiting for an answer
+
+// The waiting-for-an-answer look is split between the stylesheet (the amber
+// chip) and the applet (the blink), so both files are checked here.
+function testQuestionStyling() {
+    let css = readFile(APPLET_DIR + "/stylesheet.css");
+    check("questions: the stylesheet defines the waiting chip", !!css && css.indexOf(".kilo-agents-chip-question") >= 0, "");
+    check("questions: the waiting chip has its own background",
+        !!css && /\.kilo-agents-chip-question\s*\{[^}]*background-color/.test(css), "");
+    // The blinking class must not carry geometry: it comes and goes twice a
+    // second, and any padding on it would shuffle the whole row.
+    check("questions: blinking does not change the chip padding",
+        !!css && /\.kilo-agents-chip\s*\{[^}]*padding/.test(css) &&
+        !/\.kilo-agents-chip-question\s*\{[^}]*padding/.test(css), "");
+    let applet = readFile(APPLET_DIR + "/applet.js");
+    check("questions: the applet uses the waiting style", !!applet && applet.indexOf("kilo-agents-chip-question") >= 0, "");
+    check("questions: the applet blinks it until answered",
+        !!applet && applet.indexOf("_syncQuestions") >= 0 && applet.indexOf("QUESTION_BLINK_MS") >= 0, "");
+    check("questions: a waiting chip shows its session name", !!applet && applet.indexOf("_wantsTitle") >= 0, "");
 }
 
 // ------------------------------------------------------------ chip changes
@@ -391,6 +433,19 @@ async function testClient() {
     check("client: /api/session returns data array", Array.isArray(sessions) && sessions.length >= 1, JSON.stringify(sessions.length));
     equal("client: session title joined", sessions[0].title, "Fix the widget");
 
+    equal("client: /question without pending questions is empty",
+        (await open.questions(env("KILO_TEST_PROJ_A"))).length, 0);
+
+    let askedClient = new KiloClient({ host: "127.0.0.1", port: dynamicPort, username: "kilo", password: "test-secret-123" });
+    let pending = await askedClient.questions(env("KILO_TEST_PROJ_B"));
+    equal("client: /question returns the pending questions", pending.length, 2);
+    let asked = pending.filter(function (request) { return request.sessionID === "ses_question_f"; })[0];
+    check("client: a pending question names its session", !!asked && asked.id === "que_f", JSON.stringify(asked && asked.id));
+    check("client: a pending question carries its text",
+        !!asked && asked.questions[0].header === "Which colour?", JSON.stringify(asked && asked.questions));
+    equal("client: /question is scoped to the directory",
+        (await askedClient.questions(env("KILO_TEST_PROJ_A"))).length, 1);
+
     let auth = new KiloClient({ host: "127.0.0.1", port: dynamicPort });
     let unauthorized = null;
     try {
@@ -496,10 +551,34 @@ async function testMonitorWithProcDiscovery() {
     check("monitor: offline session present", !!offline);
     if (offline) {
         equal("monitor: offline counted", model.offline, 1);
-        check("monitor: offline detail", Format.statusDetail(offline).indexOf("awaiting answer") >= 0, Format.statusDetail(offline));
+        equal("monitor: offline keeps its own status", offline.statusType, "offline");
+        check("monitor: offline detail is about the network",
+            Format.statusDetail(offline).indexOf("reconnecting") >= 0, Format.statusDetail(offline));
     }
 
-    equal("monitor: active total", model.active, model.busy + model.retry + model.offline);
+    // A pending question is its own thing: it names the status of a session
+    // that is otherwise busy, carries the question text, and shows up even when
+    // the session's status alone would have hidden it.
+    let askedBusy = model.sessions.filter(function (session) { return session.id === "ses_question_f"; })[0];
+    check("monitor: question session present", !!askedBusy);
+    if (askedBusy) {
+        equal("monitor: question wins over busy", askedBusy.statusType, "question");
+        equal("monitor: question id joined", askedBusy.questionID, "que_f");
+        equal("monitor: question text joined", askedBusy.question, "Which colour?");
+        check("monitor: question detail", Format.statusDetail(askedBusy).indexOf("awaiting your answer") >= 0,
+            Format.statusDetail(askedBusy));
+    }
+    let askedIdle = model.sessions.filter(function (session) { return session.id === "ses_question_g"; })[0];
+    check("monitor: a question surfaces a session whose status is idle", !!askedIdle,
+        model.sessions.map(function (s) { return s.id; }).join(","));
+    if (askedIdle) {
+        equal("monitor: idle-but-asking session is flagged", askedIdle.statusType, "question");
+        equal("monitor: idle-but-asking session keeps its name", askedIdle.title, "Ask then idle");
+        equal("monitor: idle-but-asking session keeps its directory", askedIdle.directory, env("KILO_TEST_PROJ_B"));
+    }
+
+    equal("monitor: question count", model.question, 3);
+    equal("monitor: active total", model.active, model.question + model.busy + model.retry + model.offline);
     check("monitor: idle sessions excluded", model.sessions.every(function (s) { return s.statusType !== "idle"; }));
     // ses_shared_x lives in both mock servers' state on purpose: the model must
     // hold exactly one row for it and record both reporting servers.
@@ -509,8 +588,12 @@ async function testMonitorWithProcDiscovery() {
         shared.length === 1 && (shared[0].reportedBy || []).indexOf("127.0.0.1:" + fixedPort) >= 0 &&
         (shared[0].reportedBy || []).indexOf("127.0.0.1:" + dynamicPort) >= 0,
         shared.length === 1 ? JSON.stringify(shared[0].reportedBy) : "no row");
+    check("monitor: a question beats a busy report of the same session",
+        shared.length === 1 && shared[0].statusType === "question" && shared[0].questionID === "que_x",
+        shared.length === 1 ? shared[0].statusType + "/" + shared[0].questionID : "no row");
     equal("monitor: counts are post-deduplication", model.offline, 1);
-    check("monitor: busy sorts first", model.busy === 0 || model.sessions[0].statusType === "busy", model.sessions.map(function (s) { return s.statusType; }).join(","));
+    check("monitor: waiting sessions sort first", model.question === 0 || model.sessions[0].statusType === "question",
+        model.sessions.map(function (s) { return s.statusType; }).join(","));
     check("monitor: no errors for the mock servers",
         !model.errors.some(function (message) { return message.indexOf(String(fixedPort)) >= 0 || message.indexOf(String(dynamicPort)) >= 0; }),
         model.errors.join("; "));
@@ -616,6 +699,7 @@ async function run() {
 
     testFormat();
     testAgentIcon();
+    testQuestionStyling();
     testChipDiff();
     testEasing();
     testServerSpecs();

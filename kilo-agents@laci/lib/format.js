@@ -2,9 +2,10 @@
 // testable and safe to call from the applet's UI callbacks.
 
 var STATUS_LABELS = {
+    question: "awaiting your answer",
     busy: "working",
     retry: "retrying",
-    offline: "awaiting answer",
+    offline: "reconnecting",
     idle: "idle",
 };
 
@@ -52,6 +53,9 @@ function statusDetail(session) {
     if (!session) {
         return "";
     }
+    if (session.statusType === "question") {
+        return session.question ? "awaiting your answer: " + truncate(session.question, 60) : "awaiting your answer";
+    }
     if (session.statusType === "retry") {
         let parts = ["retrying"];
         if (session.attempt) {
@@ -66,7 +70,7 @@ function statusDetail(session) {
         return parts.join(" · ");
     }
     if (session.statusType === "offline") {
-        return session.message ? "awaiting answer: " + truncate(session.message, 60) : "awaiting answer";
+        return session.message ? "reconnecting: " + truncate(session.message, 60) : "reconnecting";
     }
     return statusText(session.statusType);
 }
@@ -159,6 +163,9 @@ function tooltipText(model, options) {
         lines.push("Kilo Agents - no active sessions");
     } else {
         let counts = [];
+        if (model.question) {
+            counts.push(model.question + " awaiting your answer");
+        }
         if (model.busy) {
             counts.push(model.busy + " working");
         }
@@ -166,7 +173,7 @@ function tooltipText(model, options) {
             counts.push(model.retry + " retrying");
         }
         if (model.offline) {
-            counts.push(model.offline + " awaiting answer");
+            counts.push(model.offline + " reconnecting");
         }
         lines.push("Kilo Agents - " + model.active + " active (" + counts.join(", ") + ")");
     }

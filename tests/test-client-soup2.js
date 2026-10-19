@@ -70,6 +70,11 @@ async function run() {
     let authenticated = new KiloClient({ host: "127.0.0.1", port: dynamicPort, username: "kilo", password: "test-secret-123" });
     equal("soup2: authenticated request works", (await authenticated.projects()).length, 2);
 
+    let pending = await authenticated.questions(env("KILO_TEST_PROJ_B"));
+    equal("soup2: /question works", pending.length, 2);
+    check("soup2: a pending question names its session",
+        pending.some(function (request) { return request.sessionID === "ses_question_f"; }), JSON.stringify(pending));
+
     print("");
     print(checks + " checks, " + failures + " failures");
     return failures === 0;

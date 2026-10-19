@@ -21,6 +21,11 @@ session title.
   text tone), then slides out to the left and fades out, while the chips to its
   right take the freed space back so the row never jumps. Turn it off with
   *Animate new and finished agents*.
+- **Waiting for an answer** - an agent that stopped to ask a question shows its
+  session name in an amber chip (dark artwork and dark title on the amber
+  background) that blinks until the question is answered. With *Animate new and
+  finished agents* off it stays lit instead of blinking. The name is shown even
+  when *Show the session title* is off: it is what tells you which session asks.
 - **Idle** - a dimmed robot icon, or nothing at all if you prefer
   (*Hide the panel icon when no agent is working*).
 - **Never any desktop notification** - the applet only draws in the panel. The
@@ -30,10 +35,11 @@ Clicking the applet opens the menu: every active session per server with its
 project, agent, model, status and (optionally) cost, plus per-session actions
 (copy the session ID, or run a command). Hovering shows a tooltip summary.
 
-Statuses are `busy` (working), `retry` (rate limit or provider error, with the
-attempt number and delay) and `offline` (the agent asked a question and waits
-for an answer). Idle sessions are not listed, and a session that several
-servers know about is shown once.
+Statuses are `question` (waiting for an answer, listed and sorted first),
+`busy` (working), `retry` (rate limit or provider error, with the attempt
+number and delay) and `offline` (the connection dropped and the session waits
+for the network to come back). Idle sessions are not listed, and a session that
+several servers know about is shown once.
 
 ## Install
 
@@ -91,12 +97,21 @@ run cannot leave them behind.
 | --- | --- |
 | `GET /project` | candidate project directories, most recently used first |
 | `GET /session/status?directory=<dir>` | which sessions are not idle in that directory |
+| `GET /question?directory=<dir>` | pending questions, i.e. who stopped and waits for an answer |
 | `GET /api/session?directory=<dir>&limit=N` | title, agent, model, cost, tokens, timestamps |
 
 `/session/status` only reports the directory the server was pointed at, so the
 applet sweeps the project list from `/project` (bounded by *Projects checked per
 server*). `/api/session/active` is deliberately not used: it stays empty for
 these sessions even while one is provably busy.
+
+Pending questions are a store of their own, not a status: a session whose
+question tool is blocked still reports `busy`, and the status `offline` is the
+network-reconnect wait rather than a question. The applet therefore reads
+`/question` alongside the status, marks a session as `question` when its id is
+in that list (that wins over `busy`), and keeps it in the row even if its
+status alone would have hidden it. A server too old to have `/question` answers
+404 and is simply treated as having no pending questions.
 
 Auth is HTTP Basic (`kilo` + password); a request without credentials to a
 server that requires them yields 401 and that server is reported unreachable.
@@ -165,6 +180,10 @@ and covers:
 - the monitor: directory sweep, status classification, metadata join, per
   server attribution, unreachable servers isolated, duplicate sessions merged,
   live reaction to sessions starting and finishing, `stop()`
+- pending questions: `/question` polling and its directory scoping, the
+  `question` status and how it wins over `busy`, a session surfaced while its
+  own status is idle, and the waiting-chip look (amber chip in the stylesheet,
+  blink and forced session name in the applet)
 
 ## Development notes
 
@@ -201,3 +220,6 @@ and covers:
   environment is unreadable and they are skipped.
 - The chip icon does not distinguish agents: every session shows the same
   robot/agent icon.
+- Only the question tool is detected as waiting for an answer: a session
+  blocked on a permission prompt (or on the network-reconnect question that
+  `offline` describes) is not marked as waiting.

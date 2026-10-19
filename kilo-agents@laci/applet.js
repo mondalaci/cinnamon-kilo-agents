@@ -42,6 +42,9 @@ const BLINK_OFF_MS = 150;
 const FRAME_MS = 16;
 const INVERTED_STYLE = "kilo-agents-chip-inverted";
 const INVERTED_TEXT_COLOR = "#1a1a1a";
+const QUESTION_STYLE = "kilo-agents-chip-question";
+const QUESTION_TEXT_COLOR = "#1a1a1a";
+const QUESTION_BLINK_MS = 600;
 
 // St.Icon multiplies icon_size by the stage scale factor, while the sizes in the
 // applet's settings are plain pixels, so undo that here.
@@ -95,6 +98,8 @@ class KiloAgentsApplet extends Applet.Applet {
         this._chipIds = [];      // the row as currently drawn, left to right
         this._chipsAppearance = null;
         this._chipsRendered = false;
+        this._questionTimer = 0; // the shared waiting-for-an-answer blink
+        this._questionOn = true; // current phase of that blink
 
         this._chipsBox = new St.BoxLayout({
             style_class: "kilo-agents-chips",
@@ -242,9 +247,11 @@ class KiloAgentsApplet extends Applet.Applet {
         this._chipIds = plan.order.slice();
         this._chipsRendered = true;
         this._chipsBox.visible = !(sessions.length === 0 && this.hideWhenIdle);
+        this._syncQuestions();
     }
 
     _dropChips() {
+        this._stopQuestionBlink();
         for (let id in this._chips) {
             this._chips[id].destroy();
         }
@@ -279,12 +286,8 @@ class KiloAgentsApplet extends Applet.Applet {
         if (!session) {
             return;
         }
-        let kids = actor.get_children();
-        let label = kids[kids.length - 1];
-        let wanted = Format.truncate(session.title, this.chipTitleLength);
-        if (this.chipShowTitle && label && label.get_text() !== wanted) {
-            label.set_text(wanted);
-        }
+        this._syncChipTitle(actor, session);
+        this._syncChipQuestion(actor, session.statusType === "question");
     }
 
     // One agent: icon on the left, shortened title on the right. A null
@@ -302,17 +305,127 @@ class KiloAgentsApplet extends Applet.Applet {
         chip._kiloIcon = chip.get_children()[0];
         chip._kiloIconPath = AgentIcon.pathFor(APPLET_PATH);
         chip._kiloIconPathInverted = AgentIcon.invertedPathFor(APPLET_PATH);
+        chip._kiloQuestion = false;
 
-        if (session && this.chipShowTitle) {
-            let label = new St.Label({
-                text: Format.truncate(session.title, this.chipTitleLength),
-                style_class: "kilo-agents-chip-title",
-            });
-            label.set_y_align(Clutter.ActorAlign.CENTER);
-            chip.add_child(label);
-            chip._kiloLabel = label;
+        if (this._wantsTitle(session)) {
+            chip._kiloLabel = this._addChipLabel(chip, session);
         }
         return chip;
+    }
+
+    // A session that waits for an answer always shows its name: that is what
+    // tells the user which session is asking.
+    _wantsTitle(session) {
+        return !!(session && (this.chipShowTitle || session.statusType === "question"));
+    }
+
+    _addChipLabel(chip, session) {
+        let label = new St.Label({
+            text: Format.truncate(session.title, this.chipTitleLength),
+            style_class: "kilo-agents-chip-title",
+        });
+        label.set_y_align(Clutter.ActorAlign.CENTER);
+        chip.add_child(label);
+        return label;
+    }
+
+    // Adds, updates or drops the session name, so a question can bring the
+    // title back on its own and the "show the title" setting can take it away.
+    _syncChipTitle(actor, session) {
+        let wanted = this._wantsTitle(session) ? Format.truncate(session.title, this.chipTitleLength) : null;
+        let label = actor._kiloLabel;
+        if (wanted === null) {
+            if (label) {
+                actor.remove_child(label);
+                label.destroy();
+                actor._kiloLabel = null;
+            }
+            return;
+        }
+        if (!label) {
+            actor._kiloLabel = this._addChipLabel(actor, session);
+        } else if (label.get_text() !== wanted) {
+            label.set_text(wanted);
+        }
+    }
+
+    // ---- waiting for an answer -----------------------------------------
+
+    // Marks a chip as waiting and paints the current blink phase.
+    _syncChipQuestion(actor, question) {
+        actor._kiloQuestion = !!question;
+        this._setQuestionHighlight(actor, actor._kiloQuestion && this._questionOn);
+    }
+
+    // The amber "waiting for an answer" look: the panel's own tone replaced by
+    // the amber background, with the dark artwork and dark title on top of it.
+    _setQuestionHighlight(actor, on) {
+        if (on) {
+            actor.add_style_class_name(QUESTION_STYLE);
+        } else {
+            actor.remove_style_class_name(QUESTION_STYLE);
+        }
+        let icon = actor._kiloIcon;
+        if (icon && actor._kiloIconPath) {
+            try {
+                icon.set_gicon(Gio.icon_new_for_string(on ? actor._kiloIconPathInverted : actor._kiloIconPath));
+            } catch (e) {
+                this._error("cannot switch the chip icon", e);
+            }
+        }
+        if (actor._kiloLabel) {
+            actor._kiloLabel.set_style(on ? "color: " + QUESTION_TEXT_COLOR + ";" : null);
+        }
+    }
+
+    // One timer drives every waiting chip: it flips the amber look on and off
+    // while at least one session waits for an answer, and stops as soon as the
+    // last one is answered. The phase is driven here rather than by a CSS
+    // animation, because Cinnamon applies a halted animation's end state
+    // immediately when desktop animations are switched off, which is also why
+    // the "animate new and finished agents" setting is the switch that matters.
+    _syncQuestions() {
+        let waiting = false;
+        for (let id in this._chips) {
+            if (this._chips[id]._kiloQuestion) {
+                waiting = true;
+                break;
+            }
+        }
+
+        if (waiting && this.animateChips) {
+            if (!this._questionTimer) {
+                this._questionOn = true;
+                this._questionTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, QUESTION_BLINK_MS, () => {
+                    this._questionOn = !this._questionOn;
+                    this._paintQuestions(this._questionOn);
+                    return GLib.SOURCE_CONTINUE;
+                });
+            }
+            return;
+        }
+
+        this._stopQuestionBlink();
+    }
+
+    // With the blink off (no animation setting, or nothing waiting) the chips
+    // stay highlighted, so the distinction survives a static panel.
+    _stopQuestionBlink() {
+        if (this._questionTimer) {
+            GLib.source_remove(this._questionTimer);
+            this._questionTimer = 0;
+        }
+        this._questionOn = true;
+        this._paintQuestions(true);
+    }
+
+    _paintQuestions(on) {
+        for (let id in this._chips) {
+            let chip = this._chips[id];
+            if (chip && chip._kiloQuestion) {
+                this._setQuestionHighlight(chip, on);
+            }
+        }
     }
 
     // The "negative" of a chip: dark artwork on the panel's text tone. Used for
@@ -368,6 +481,11 @@ class KiloAgentsApplet extends Applet.Applet {
         delete this._chips[id];
         if (!actor) {
             return;
+        }
+        // An answered session stops blinking before it leaves: the exit starts
+        // from the normal look, whatever phase the blink was in.
+        if (actor._kiloQuestion) {
+            this._syncChipQuestion(actor, false);
         }
         if (!animate) {
             actor.destroy();
@@ -552,6 +670,9 @@ class KiloAgentsApplet extends Applet.Applet {
             return "Kilo Agents - scanning for servers\u2026";
         }
         let parts = [model.active + " active"];
+        if (model.question) {
+            parts.push(model.question + " awaiting your answer");
+        }
         if (model.busy) {
             parts.push(model.busy + " working");
         }
@@ -559,7 +680,7 @@ class KiloAgentsApplet extends Applet.Applet {
             parts.push(model.retry + " retrying");
         }
         if (model.offline) {
-            parts.push(model.offline + " awaiting answer");
+            parts.push(model.offline + " reconnecting");
         }
         parts.push(Format.serverSummary(model));
         return "Kilo Agents - " + parts.join(", ");
@@ -610,7 +731,9 @@ class KiloAgentsApplet extends Applet.Applet {
     }
 
     _sessionItem(session) {
-        let glyph = session.statusType === "busy" ? "\u25b6" : (session.statusType === "retry" ? "\u21bb" : "?");
+        let glyph = session.statusType === "question" ? "?" :
+            (session.statusType === "busy" ? "\u25b6" :
+             (session.statusType === "retry" ? "\u21bb" : "\u26a0"));
         let label = glyph + "  " + Format.sessionMenuLabel(session, {
             maxTitleLength: this.menuTitleLength,
             showAgent: true,
@@ -731,6 +854,10 @@ class KiloAgentsApplet extends Applet.Applet {
             GLib.source_remove(this._animations[i]);
         }
         this._animations = [];
+        if (this._questionTimer) {
+            GLib.source_remove(this._questionTimer);
+            this._questionTimer = 0;
+        }
         if (this._monitor) {
             this._monitor.stop();
             this._monitor = null;

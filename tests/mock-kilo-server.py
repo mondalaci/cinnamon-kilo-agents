@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """A tiny stand-in for `kilo serve`, used by the applet's test suite.
 
-It implements exactly the three endpoints the applet reads, with the same
+It implements exactly the endpoints the applet reads, with the same
 payload shapes the real server produces:
 
     GET /project                                -> [{id, worktree, vcs, time, sandboxes}]
     GET /session/status[?directory=<dir>]       -> {"<sessionID>": {"type": ...}}
+    GET /question[?directory=<dir>]             -> [{id, sessionID, questions}]
     GET /api/session?directory=<dir>&limit=<n>  -> {"data": [Session.Info], "cursor": {...}}
 
-Who is busy is read from a state file on every request, so tests can change
-the world while the server keeps running. `serve` is accepted as a subcommand
-and the --port/--hostname flags are honoured (including --port 0) so that the
-process looks like a real kilo server in /proc.
+Who is busy, and who waits for an answer, is read from a state file on every
+request, so tests can change the world while the server keeps running. `serve`
+is accepted as a subcommand and the --port/--hostname flags are honoured
+(including --port 0) so that the process looks like a real kilo server in /proc.
 """
 
 import argparse
@@ -125,6 +126,33 @@ class Handler(BaseHTTPRequestHandler):
                 if session.get("directory") == directory:
                     statuses[session["id"]] = session.get("status", {"type": "busy"})
             self._send(statuses)
+            return
+
+        if parsed.path == "/question":
+            # Pending questions are keyed by session, and a question is only
+            # visible in the directory its session belongs to - like the real
+            # instance-scoped endpoint.
+            by_id = {s["id"]: s for s in sessions}
+            pending = []
+            for request in state.get("questions", []):
+                session = by_id.get(request.get("sessionID"))
+                if session is None:
+                    continue
+                if directory is None:
+                    if session.get("directory") is not None:
+                        continue
+                elif session.get("directory") != directory:
+                    continue
+                pending.append({
+                    "id": request.get("id", "que_mock"),
+                    "sessionID": request["sessionID"],
+                    "questions": request.get("questions", [{
+                        "header": request.get("header", "Answer me"),
+                        "question": request.get("question", "Which one?"),
+                        "options": [],
+                    }]),
+                })
+            self._send(pending)
             return
 
         if parsed.path == "/api/session":

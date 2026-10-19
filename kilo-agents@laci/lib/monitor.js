@@ -3,11 +3,13 @@
 // Per server the sweep is:
 //   GET /project                       -> candidate project directories
 //   GET /session/status[?directory=..] -> per directory, who is not idle
+//   GET /question[?directory=..]       -> per directory, who waits for an answer
 //   GET /api/session?directory=..      -> title/agent/model/cost for those ids
 //
 // Status is only reported by the process that runs the agent, and only for
 // the directory that process was pointed at, so both the directory sweep and
-// the per-server merging matter.
+// the per-server merging matter. Pending questions live in a store of their
+// own, which is why they are fetched separately from the status.
 
 const GLib = imports.gi.GLib;
 
@@ -20,8 +22,18 @@ function now() {
     return Date.now();
 }
 
+// The short text of a pending question request: the header is meant to be a
+// very short label, the question is the full sentence.
+function questionText(request) {
+    if (!request || !Array.isArray(request.questions) || request.questions.length === 0) {
+        return null;
+    }
+    let first = request.questions[0] || {};
+    return first.header || first.question || null;
+}
+
 function emptyModel() {
-    return { at: 0, servers: [], sessions: [], active: 0, busy: 0, retry: 0, offline: 0, errors: [] };
+    return { at: 0, servers: [], sessions: [], active: 0, question: 0, busy: 0, retry: 0, offline: 0, errors: [] };
 }
 
 // Run `worker` over `items` with at most `limit` in flight, preserving order.
@@ -186,14 +198,25 @@ var Monitor = class Monitor {
 
         let targets = [null].concat(directories);
         let statusResults = await mapLimit(targets, 8, async (directory) => {
+            let entry = { directory: directory, statuses: null, questions: [], error: null };
             try {
-                return { directory: directory, statuses: await client.sessionStatuses(directory) };
+                entry.statuses = await client.sessionStatuses(directory);
             } catch (e) {
-                return { directory: directory, error: e };
+                entry.error = e;
+                return entry;
             }
+            try {
+                entry.questions = await client.questions(directory);
+            } catch (e) {
+                // Older servers have no /question endpoint. That says nothing
+                // about the server being reachable, so it is not an error.
+                this.log("kilo-agents: " + server.id + " /question failed: " + e.message);
+            }
+            return entry;
         });
 
         let active = [];
+        let asked = {};          // session id -> pending question request
         let answered = 0;
         let firstError = null;
         for (let i = 0; i < statusResults.length; i++) {
@@ -205,6 +228,16 @@ var Monitor = class Monitor {
                 continue;
             }
             answered++;
+            for (let q = 0; q < entry.questions.length; q++) {
+                let request = entry.questions[q];
+                if (request && request.sessionID && !asked[request.sessionID]) {
+                    asked[request.sessionID] = {
+                        id: request.id || null,
+                        request: request,
+                        directory: entry.directory || server.cwd || null,
+                    };
+                }
+            }
             for (let id in entry.statuses) {
                 let status = entry.statuses[id];
                 if (!isActiveStatus(status)) {
@@ -221,6 +254,20 @@ var Monitor = class Monitor {
         if (answered === 0 && firstError) {
             result.error = firstError.message;
             return result;
+        }
+
+        // A question can outlive the status that reported it (or arrive while
+        // the session looks idle), so a session with a pending question is in
+        // the row even when its status alone would have hidden it.
+        let known = {};
+        for (let i = 0; i < active.length; i++) {
+            known[active[i].id] = true;
+        }
+        for (let id in asked) {
+            if (known[id]) {
+                continue;
+            }
+            active.push({ id: id, status: { type: "question" }, directory: asked[id].directory });
         }
 
         // One metadata lookup per directory that reported activity, plus the
@@ -254,7 +301,7 @@ var Monitor = class Monitor {
         for (let i = 0; i < active.length; i++) {
             let entry = active[i];
             let info = metadata[entry.id] || null;
-            result.sessions.push(buildSession(entry.id, entry.status, entry.directory, info, server));
+            result.sessions.push(buildSession(entry.id, entry.status, entry.directory, info, server, asked[entry.id] || null));
         }
 
         result.ok = true;
@@ -262,9 +309,9 @@ var Monitor = class Monitor {
     }
 
     _buildModel(servers, results) {
-        let rank = { busy: 0, retry: 1, offline: 2 };
+        let rank = { question: 0, busy: 1, retry: 2, offline: 3 };
         let rankOf = function (statusType) {
-            return rank[statusType] === undefined ? 3 : rank[statusType];
+            return rank[statusType] === undefined ? 4 : rank[statusType];
         };
 
         // One row per session id: two servers can both know about a session
@@ -310,12 +357,15 @@ var Monitor = class Monitor {
         }
 
         let sessions = [];
+        let question = 0;
         let busy = 0;
         let retry = 0;
         let offline = 0;
         for (let i = 0; i < order.length; i++) {
             let session = byId[order[i]];
-            if (session.statusType === "busy") {
+            if (session.statusType === "question") {
+                question++;
+            } else if (session.statusType === "busy") {
                 busy++;
             } else if (session.statusType === "retry") {
                 retry++;
@@ -325,7 +375,8 @@ var Monitor = class Monitor {
             sessions.push(session);
         }
 
-        // Most interesting first: busy, then retry, then offline, then newest.
+        // Most interesting first: a session waiting for an answer, then working,
+        // then retrying, then the network wait, then newest.
         sessions.sort(function (a, b) {
             let ra = rankOf(a.statusType);
             let rb = rankOf(b.statusType);
@@ -347,6 +398,7 @@ var Monitor = class Monitor {
             servers: serverModels,
             sessions: sessions,
             active: sessions.length,
+            question: question,
             busy: busy,
             retry: retry,
             offline: offline,
@@ -365,7 +417,8 @@ function projectUpdated(projects, worktree) {
     return 0;
 }
 
-function buildSession(id, status, directory, info, server) {
+function buildSession(id, status, directory, info, server, pendingQuestion) {
+    let question = pendingQuestion || null;
     let model = info && info.model ? (info.model.id || info.model.modelID || null) : null;
     return {
         id: id,
@@ -374,7 +427,11 @@ function buildSession(id, status, directory, info, server) {
         model: model,
         directory: (info && info.location && info.location.directory) || directory || null,
         status: status,
-        statusType: status.type,
+        // A pending question is the most interesting thing about a session, so
+        // it names the status even when the underlying status is busy.
+        statusType: question ? "question" : status.type,
+        questionID: question ? question.id : null,
+        question: question ? questionText(question.request) : null,
         attempt: status.attempt || null,
         nextAt: status.next || null,
         message: status.message || (status.action && status.action.message) || null,
