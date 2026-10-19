@@ -24,3 +24,8 @@
 .kilo-agents-menu-info {
     font-weight: bold;
 }
+
+.kilo-agents-chip-inverted {
+    background-color: #c6cdd6;
+    border-radius: 4px;
+}

@@ -12,6 +12,7 @@
 const Applet = imports.ui.applet;
 const Clutter = imports.gi.Clutter;
 const Gio = imports.gi.Gio;
+const GLib = imports.gi.GLib;
 const PopupMenu = imports.ui.popupMenu;
 const Settings = imports.ui.settings;
 const St = imports.gi.St;
@@ -26,11 +27,21 @@ imports.searchPath.unshift(APPLET_PATH);
 const Discovery = imports.lib.discovery;
 const Format = imports.lib.format;
 const AgentIcon = imports.lib.agenticon;
+const ChipDiff = imports.lib.chipdiff;
+const Easing = imports.lib.easing;
 const Monitor = imports.lib.monitor.Monitor;
 
 const REFRESH_ICON = "view-refresh-symbolic";
 const SETTINGS_ICON = "preferences-system-symbolic";
 const OVERFLOW_STYLE = "kilo-agents-chip-overflow";
+const IN_ANIMATION_MS = 250;
+const OUT_ANIMATION_MS = 200;
+const BLINK_CYCLES = 3;
+const BLINK_ON_MS = 150;
+const BLINK_OFF_MS = 150;
+const FRAME_MS = 16;
+const INVERTED_STYLE = "kilo-agents-chip-inverted";
+const INVERTED_TEXT_COLOR = "#1a1a1a";
 
 // St.Icon multiplies icon_size by the stage scale factor, while the sizes in the
 // applet's settings are plain pixels, so undo that here.
@@ -79,7 +90,11 @@ class KiloAgentsApplet extends Applet.Applet {
 
         this._model = null;
         this._monitor = null;
-        this._chipsSignature = null;
+        this._animations = [];   // frame timers of running chip animations
+        this._chips = {};        // session id (or marker id) -> chip actor
+        this._chipIds = [];      // the row as currently drawn, left to right
+        this._chipsAppearance = null;
+        this._chipsRendered = false;
 
         this._chipsBox = new St.BoxLayout({
             style_class: "kilo-agents-chips",
@@ -125,6 +140,7 @@ class KiloAgentsApplet extends Applet.Applet {
         this.settings.bind("chip-icon-size", "chipIconSize", this._onAppearanceChanged);
         this.settings.bind("chip-show-title", "chipShowTitle", this._onAppearanceChanged);
         this.settings.bind("hide-when-idle", "hideWhenIdle", this._onAppearanceChanged);
+        this.settings.bind("animate-chips", "animateChips", this._onAppearanceChanged);
         this.settings.bind("tooltip-lines", "tooltipLines", this._onAppearanceChanged);
 
         this.settings.bind("menu-title-length", "menuTitleLength", this._onAppearanceChanged);
@@ -189,41 +205,86 @@ class KiloAgentsApplet extends Applet.Applet {
         this._renderMenu(model);
     }
 
-    // Rebuilds the chip row only when something visible actually changed -
-    // the model is refreshed every couple of seconds.
+    // The chip row is diffed against the previous poll and animated: a session
+    // that starts slides in, one that finishes slides out, and chips that stay
+    // are only moved and refreshed.
     _renderChips(model) {
         let sessions = model ? model.sessions : [];
-        let shown = sessions.slice(0, Math.max(1, this.chipsMax));
-        let signature = [
-            this.chipsMax, this.chipTitleLength, this.chipIconSize, this.chipShowTitle, this.hideWhenIdle, this.agentIcon,
-            sessions.length,
-        ].concat(shown.map((session) =>
-            session.id + "|" + session.title + "|" + session.statusType
-        )).join("\n");
+        let appearance = [this.chipsMax, this.chipTitleLength, this.chipIconSize, this.chipShowTitle,
+                          this.hideWhenIdle, this.agentIcon].join("|");
 
-        if (signature === this._chipsSignature) {
-            return;
+        if (appearance !== this._chipsAppearance) {
+            // A visual setting changed: rebuild instantly, nothing to animate.
+            this._chipsAppearance = appearance;
+            this._dropChips();
         }
-        this._chipsSignature = signature;
 
-        this._chipsBox.destroy_all_children();
+        let plan = ChipDiff.plan(this._chipIds, sessions, this.chipsMax);
+        // the first render is not a transition: nothing to animate yet
+        let animate = this.animateChips && this._chipsRendered;
+
+        for (let i = 0; i < plan.removed.length; i++) {
+            this._removeChip(plan.removed[i], animate);
+        }
+        for (let index = 0; index < plan.order.length; index++) {
+            let id = plan.order[index];
+            let actor = this._chips[id];
+            let session = ChipDiff.sessionFor(id, sessions);
+            if (!actor) {
+                actor = this._createChip(id, session, plan.overflow);
+                this._chips[id] = actor;
+                this._chipsBox.add_child(actor);
+                this._animateIn(actor, id, animate);
+            } else {
+                this._refreshChip(actor, id, session, plan.overflow);
+            }
+            this._chipsBox.set_child_at_index(actor, index);
+        }
+        this._chipIds = plan.order.slice();
+        this._chipsRendered = true;
         this._chipsBox.visible = !(sessions.length === 0 && this.hideWhenIdle);
+    }
 
-        if (sessions.length === 0) {
-            this._chipsBox.add_child(this._chip(null));
-            return;
+    _dropChips() {
+        for (let id in this._chips) {
+            this._chips[id].destroy();
         }
+        this._chips = {};
+        this._chipIds = [];
+    }
 
-        for (let i = 0; i < shown.length; i++) {
-            this._chipsBox.add_child(this._chip(shown[i]));
+    _createChip(id, session, overflow) {
+        if (id === ChipDiff.IDLE) {
+            return this._chip(null);
         }
-        if (sessions.length > shown.length) {
-            let overflow = new St.Label({
-                text: "+" + (sessions.length - shown.length),
+        if (id === ChipDiff.OVERFLOW) {
+            let box = new St.BoxLayout({ style_class: "kilo-agents-chip", reactive: false });
+            box.set_y_align(Clutter.ActorAlign.CENTER);
+            box.add_child(new St.Label({
+                text: "+" + overflow,
                 style_class: OVERFLOW_STYLE,
                 y_align: Clutter.ActorAlign.CENTER,
-            });
-            this._chipsBox.add_child(overflow);
+            }));
+            return box;
+        }
+        return this._chip(session);
+    }
+
+    // Keeps a chip that is still there in step with its session.
+    _refreshChip(actor, id, session, overflow) {
+        if (id === ChipDiff.OVERFLOW) {
+            let label = actor.get_children()[0];
+            label.set_text("+" + overflow);
+            return;
+        }
+        if (!session) {
+            return;
+        }
+        let kids = actor.get_children();
+        let label = kids[kids.length - 1];
+        let wanted = Format.truncate(session.title, this.chipTitleLength);
+        if (this.chipShowTitle && label && label.get_text() !== wanted) {
+            label.set_text(wanted);
         }
     }
 
@@ -239,6 +300,9 @@ class KiloAgentsApplet extends Applet.Applet {
         chip.set_x_align(Clutter.ActorAlign.CENTER);
 
         chip.add_child(createAgentIcon(this.agentIcon, this.chipIconSize));
+        chip._kiloIcon = chip.get_children()[0];
+        chip._kiloIconPath = AgentIcon.pathFor(this.agentIcon, APPLET_PATH);
+        chip._kiloIconPathInverted = AgentIcon.invertedPathFor(this.agentIcon, APPLET_PATH);
 
         if (session && this.chipShowTitle) {
             let label = new St.Label({
@@ -247,8 +311,207 @@ class KiloAgentsApplet extends Applet.Applet {
             });
             label.set_y_align(Clutter.ActorAlign.CENTER);
             chip.add_child(label);
+            chip._kiloLabel = label;
         }
         return chip;
+    }
+
+    // The "negative" of a chip: dark artwork on the panel's text tone. Used for
+    // the three flashes a finished chip makes before it leaves.
+    _setInverted(actor, inverted) {
+        if (inverted) {
+            actor.add_style_class_name(INVERTED_STYLE);
+        } else {
+            actor.remove_style_class_name(INVERTED_STYLE);
+        }
+        let icon = actor._kiloIcon;
+        if (icon && actor._kiloIconPath) {
+            try {
+                icon.set_gicon(Gio.icon_new_for_string(inverted ? actor._kiloIconPathInverted : actor._kiloIconPath));
+            } catch (e) {
+                this._error("cannot switch the chip icon", e);
+            }
+        }
+        let label = actor._kiloLabel;
+        if (label) {
+            if (inverted) {
+                label.set_style("color: " + INVERTED_TEXT_COLOR + ";");
+            } else {
+                label.set_style(null);
+            }
+        }
+    }
+
+    // ---- animation -----------------------------------------------------
+
+    // Slides a chip in from the left, fading it in.
+    _animateIn(actor, id, animate) {
+        if (!animate) {
+            return;
+        }
+        let distance = id === ChipDiff.IDLE ? 0 : this._slideDistance();
+        actor.set_opacity(0);
+        actor.set_translation(-distance, 0, 0);
+        this._slide(actor, {
+            translationFrom: -distance,
+            translationTo: 0,
+            opacityFrom: 0,
+            opacityTo: 255,
+            duration: IN_ANIMATION_MS,
+            curve: Easing.EASE_OUT,
+        });
+    }
+
+    // Removes a chip. A session that finished flashes inverted three times
+    // first, then slides out; the idle/overflow markers just slide out.
+    _removeChip(id, animate) {
+        let actor = this._chips[id];
+        delete this._chips[id];
+        if (!actor) {
+            return;
+        }
+        if (!animate) {
+            actor.destroy();
+            return;
+        }
+
+        if (ChipDiff.isMarker(id) || id.indexOf("ses_") !== 0) {
+            this._slideOut(actor, id);
+            return;
+        }
+        this._flashThenSlideOut(actor, id);
+    }
+
+    // Blinks the chip inverted and then hands over to the exit slide.
+    _flashThenSlideOut(actor, id) {
+        let self = this;
+        let schedule = Easing.blinkSchedule(BLINK_CYCLES, BLINK_ON_MS, BLINK_OFF_MS);
+        let started = GLib.get_monotonic_time() / 1000;
+        let step = 0;
+
+        let tick = function () {
+            let elapsed = GLib.get_monotonic_time() / 1000 - started;
+            while (step < schedule.length && schedule[step].at <= elapsed) {
+                let entry = schedule[step];
+                step++;
+                try {
+                    self._setInverted(actor, entry.inverted);
+                } catch (e) {
+                    // the actor is gone: stop flashing and let it be
+                    return GLib.SOURCE_REMOVE;
+                }
+            }
+            if (step >= schedule.length) {
+                self._slideOut(actor, id);
+                return GLib.SOURCE_REMOVE;
+            }
+            return GLib.SOURCE_CONTINUE;
+        };
+
+        // start inverted immediately, then let the frames drive the rest
+        this._setInverted(actor, schedule[0].inverted);
+        step = 1;
+        let timer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, FRAME_MS, tick);
+        this._animations.push(timer);
+    }
+
+    // Slides a chip out to the left, fading it out, then destroys it. The chips
+    // to its right are pulled left by the same width for the duration, so the
+    // row does not jump when the actor finally disappears.
+    _slideOut(actor, id) {
+        let index = this._chipIds.indexOf(id);
+        let width = actor.get_width() + this._chipSpacing();
+        let following = [];
+        if (index >= 0 && width > 0) {
+            for (let i = index + 1; i < this._chipIds.length; i++) {
+                let sibling = this._chips[this._chipIds[i]];
+                if (!sibling) {
+                    continue;
+                }
+                following.push(sibling);
+                this._slide(sibling, {
+                    translationFrom: sibling.translation_x,
+                    translationTo: sibling.translation_x - width,
+                    opacityFrom: sibling.opacity,
+                    opacityTo: sibling.opacity,
+                    duration: OUT_ANIMATION_MS,
+                    curve: Easing.EASE_IN,
+                });
+            }
+        }
+
+        this._slide(actor, {
+            translationFrom: actor.translation_x,
+            translationTo: -this._slideDistance(),
+            opacityFrom: actor.opacity,
+            opacityTo: 0,
+            duration: OUT_ANIMATION_MS,
+            curve: Easing.EASE_IN,
+            onComplete: function () {
+                actor.destroy();
+                // the layout drops the freed slot in the same frame, so the
+                // shift can be given back without moving anything on screen
+                for (let i = 0; i < following.length; i++) {
+                    following[i].set_translation(0, 0, 0);
+                }
+            },
+        });
+    }
+
+    // Moves a chip right or left by taking the space back over several frames.
+    // Cinnamon skips Clutter easing when desktop animations are off, so the
+    // interpolation is done here.
+    _slide(actor, options) {
+        let duration = Math.max(1, options.duration);
+        let started = GLib.get_monotonic_time() / 1000;
+        let self = this;
+        let id = 0;
+
+        // keeps the timer registry honest, so removing the applet never tries to
+        // cancel a timeout that already finished
+        let forget = function () {
+            let index = self._animations.indexOf(id);
+            if (index >= 0) {
+                self._animations.splice(index, 1);
+            }
+        };
+
+        let step = function () {
+            let elapsed = GLib.get_monotonic_time() / 1000 - started;
+            let p = Easing.progress(elapsed, duration, options.curve);
+            try {
+                actor.set_translation(Easing.value(options.translationFrom, options.translationTo, p), 0, 0);
+                actor.set_opacity(Math.round(Easing.value(options.opacityFrom, options.opacityTo, p)));
+            } catch (e) {
+                // the actor went away underneath us (applet removed, rebuild)
+                forget();
+                return GLib.SOURCE_REMOVE;
+            }
+            if (elapsed >= duration) {
+                forget();
+                if (options.onComplete) {
+                    options.onComplete();
+                }
+                return GLib.SOURCE_REMOVE;
+            }
+            return GLib.SOURCE_CONTINUE;
+        };
+
+        id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, FRAME_MS, step);
+        this._animations.push(id);
+    }
+
+    _slideDistance() {
+        return Math.max(24, this.chipIconSize + 12);
+    }
+
+    _chipSpacing() {
+        try {
+            let spacing = this._chipsBox.get_theme_node().get_length("spacing");
+            return spacing > 0 ? spacing : 8;
+        } catch (e) {
+            return 8;
+        }
     }
 
     // ---- menu ----------------------------------------------------------
@@ -465,6 +728,10 @@ class KiloAgentsApplet extends Applet.Applet {
     }
 
     on_applet_removed_from_panel() {
+        for (let i = 0; i < this._animations.length; i++) {
+            GLib.source_remove(this._animations[i]);
+        }
+        this._animations = [];
         if (this._monitor) {
             this._monitor.stop();
             this._monitor = null;

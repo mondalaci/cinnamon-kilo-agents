@@ -17,6 +17,11 @@ session title.
   model it runs; pick a different one in the settings.
 - **Title** - the session's title, shortened to the configured length.
 - **`+N`** - more agents are active than the chip limit allows.
+- **Motion** - a session that starts slides in from the left and fades in. One
+  that finishes flashes **inverted three times** (dark artwork on the panel's
+  text tone), then slides out to the left and fades out, while the chips to its
+  right take the freed space back so the row never jumps. Turn it off with
+  *Animate new and finished agents*.
 - **Idle** - a dimmed robot icon, or nothing at all if you prefer
   (*Hide the panel icon when no agent is working*).
 - **Never any desktop notification** - the applet only draws in the panel. The
@@ -117,9 +122,13 @@ so it stays smooth at any size - no hand-drawn pixel art.
 | `lucide-brain-circuit.svg` | Lucide `brain-circuit` | ISC |
 
 The files are unmodified except for the colour: `currentColor` is replaced with
-the panel tone `#c6cdd6` so they read on a dark panel. Edit the `stroke`/`fill`
-attribute in `icons/*.svg` to recolour them, or drop another SVG with the same
-name into `icons/`. Each file keeps its source and licence in a header comment.
+the panel tone `#c6cdd6` so they read on a dark panel. Each icon also ships an
+`-inverted` twin (`#1a1a1a`, the panel background tone) which the finishing
+blink flashes; `lib/agenticon.js` resolves both, and the test suite checks that
+the inverted file is the same artwork in the inverse colour. Edit the
+`stroke`/`fill` attribute in `icons/*.svg` to recolour them, or drop another SVG
+with the same name into `icons/`. Each file keeps its source and licence in a
+header comment.
 
 If the selected file cannot be loaded, the applet falls back to the theme's
 `avatar-default-symbolic` icon and logs the reason.
@@ -130,7 +139,7 @@ If the selected file cannot be loaded, the applet falls back to the theme's
 | --- | --- |
 | General | poll interval (2 s), session details refresh (30 s), sessions per project (20), projects per server (60) |
 | Servers | daemon file on/off + path, `/proc` scan on/off, additional servers |
-| Panel | icon size (48), shortened title length (18), show the title, agents shown side by side (3), hide when idle |
+| Panel | agent icon, icon size (48), shortened title length (18), show the title, agents shown side by side (3), animate new/finished agents, hide when idle |
 | Menu | session title length, show model, show directory, show cost/tokens, list idle servers |
 | Actions | session action: copy the session ID, run a command (`{id} {title} {dir} {agent} {model} {status}`), or nothing |
 
@@ -171,9 +180,12 @@ and covers:
 
 - panel/menu formatting helpers (titles, durations, cost, tooltips)
 - the agent icons: that every bundled file exists, is an SVG, still carries its
-  licence note and has been tinted (no `currentColor` left), that the icon
+  licence note and has been tinted (no `currentColor` left), that every icon has
+  an inverted twin with the same artwork in the inverse colour, that the icon
   lookup cannot escape the applet directory and falls back sensibly, and that
   the settings dropdown matches the bundled set and the default
+- the chip animation timing: the easing curves and the blink schedule (three
+  inverted flashes, ending back in the normal look)
 - that the applet's discovery skips the test doubles while they are running and
   answering, and that the suite can still see them on request
 - server-spec and discovery-file parsing, including broken input
@@ -191,6 +203,13 @@ and covers:
   enough to pick up the change. Edited `lib/*.js` modules stay cached in the
   Cinnamon process, so those need a Cinnamon restart
   (`org.Cinnamon.RestartCinnamon true`) - a fresh start always works.
+- The chip animations are driven by the applet's own frame loop
+  (`lib/easing.js` + a 16 ms `GLib.timeout_add`) rather than by Clutter easing.
+  Cinnamon applies an actor's final value immediately when desktop animations
+  are switched off (`St.Settings.animations_enabled`, false on plenty of
+  installs), which would silently turn every `ease()` into a jump; driving the
+  interpolation here keeps the slide visible for anyone who asked for it, and
+  the `animate-chips` setting is the switch that matters.
 - `St.Icon` multiplies `icon_size` by the stage scale factor while the applet's
   icon size setting is plain pixels; `createAgentIcon` divides it back out, so
   a 48 px setting really is 48 px on screen (24 logical units at scale 2).

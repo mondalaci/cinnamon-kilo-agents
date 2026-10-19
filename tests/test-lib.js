@@ -16,6 +16,8 @@ const Discovery = imports.lib.discovery;
 const Format = imports.lib.format;
 const Monitor = imports.lib.monitor.Monitor;
 const AgentIcon = imports.lib.agenticon;
+const ChipDiff = imports.lib.chipdiff;
+const Easing = imports.lib.easing;
 const Procfs = imports.lib.procfs;
 
 let failures = 0;
@@ -131,6 +133,35 @@ function testAgentIcon() {
     let offered = Object.keys(options).map(function (label) { return options[label]; }).sort();
     equal("icons: dropdown matches the shipped ids", offered.join(","), ids.slice().sort().join(","));
 
+    // every icon has an inverted twin, same artwork in the panel background tone
+    let artwork = function (svg) {
+        return svg.split("\n").filter(function (line) { return line.indexOf("<!--") < 0; }).join("\n");
+    };
+    let invertedProblems = [];
+    for (let i = 0; i < ids.length; i++) {
+        let normal = readFile(AgentIcon.pathFor(ids[i], APPLET_DIR));
+        let inverted = readFile(AgentIcon.invertedPathFor(ids[i], APPLET_DIR));
+        if (inverted === null) {
+            invertedProblems.push(ids[i] + ": missing");
+            continue;
+        }
+        if (inverted.indexOf("<svg") < 0) {
+            invertedProblems.push(ids[i] + ": no <svg");
+        } else if (inverted.indexOf("#1a1a1a") < 0) {
+            invertedProblems.push(ids[i] + ": not inverted");
+        } else if (inverted.indexOf("#c6cdd6") >= 0) {
+            invertedProblems.push(ids[i] + ": still has the normal colour");
+        } else if (artwork(inverted).replace(/#1a1a1a/g, "#c6cdd6") !== artwork(normal)) {
+            invertedProblems.push(ids[i] + ": artwork differs from the normal variant");
+        }
+    }
+    equal("icons: inverted variants are the same artwork in inverse colour", invertedProblems.join("; "), "");
+    check("icons: inverted path", AgentIcon.invertedPathFor("lucide-bot", APPLET_DIR).endsWith("icons/lucide-bot-inverted.svg"),
+        AgentIcon.invertedPathFor("lucide-bot", APPLET_DIR));
+    check("icons: inverted path stays inside the applet",
+        AgentIcon.invertedPathFor("nope", APPLET_DIR).indexOf(APPLET_DIR + "/icons/") === 0,
+        AgentIcon.invertedPathFor("nope", APPLET_DIR));
+
     // every shipped file exists, is an SVG, and carries a concrete colour
     let missing = [];
     let bad = [];
@@ -179,6 +210,111 @@ function testAgentIcon() {
     let schemaIds = Object.keys(schema["agent-icon"].options).map(function (label) { return schema["agent-icon"].options[label]; }).sort();
     equal("icons: schema options match the module", schemaIds.join(","), ids.slice().sort().join(","));
     equal("icons: schema default matches", schema["agent-icon"].default, AgentIcon.DEFAULT_ID);
+}
+
+// ------------------------------------------------------------ chip changes
+
+function session(id, title) {
+    return { id: id, title: title || id, statusType: "busy" };
+}
+
+function testChipDiff() {
+    let a = session("ses_a", "First");
+    let b = session("ses_b", "Second");
+    let c = session("ses_c", "Third");
+
+    // first poll: everything is new, nothing to remove
+    let empty = ChipDiff.plan([], [a], 3);
+    equal("chips: first session is added", empty.added.join(","), "ses_a");
+    equal("chips: nothing removed on the first poll", empty.removed.length, 0);
+    equal("chips: order", empty.order.join(","), "ses_a");
+    check("chips: not idle", empty.idle === false);
+
+    // a second session starts: only it is added, the first chip is kept
+    let grown = ChipDiff.plan(["ses_a"], [a, b], 3);
+    equal("chips: new session slides in", grown.added.join(","), "ses_b");
+    equal("chips: kept sessions are untouched", grown.removed.length, 0);
+    equal("chips: order follows the model", grown.order.join(","), "ses_a,ses_b");
+
+    // a session ends: it is the only thing removed
+    let shrunk = ChipDiff.plan(["ses_a", "ses_b"], [a], 3);
+    equal("chips: finished session slides out", shrunk.removed.join(","), "ses_b");
+    equal("chips: nothing added", shrunk.added.length, 0);
+    equal("chips: order", shrunk.order.join(","), "ses_a");
+
+    // reordering is neither an add nor a remove, just a new order
+    let reordered = ChipDiff.plan(["ses_a", "ses_b"], [b, a], 3);
+    equal("chips: reorder adds nothing", reordered.added.length, 0);
+    equal("chips: reorder removes nothing", reordered.removed.length, 0);
+    equal("chips: reorder keeps both", reordered.order.join(","), "ses_b,ses_a");
+
+    // more sessions than chips: the extra ones leave the row, an overflow chip appears
+    let capped = ChipDiff.plan(["ses_a", "ses_b", "ses_c"], [a, b, c, session("ses_d"), session("ses_e")], 3);
+    equal("chips: capped order", capped.order.join(","), "ses_a,ses_b,ses_c," + ChipDiff.OVERFLOW);
+    equal("chips: overflow count", capped.overflow, 2);
+    equal("chips: overflow chip is added", capped.added.indexOf(ChipDiff.OVERFLOW) >= 0, true);
+    equal("chips: nothing removed when the cap hides one", capped.removed.length, 0);
+
+    // the overflow chip goes away again when sessions finish
+    let uncapped = ChipDiff.plan(["ses_a", "ses_b", "ses_c", ChipDiff.OVERFLOW], [a, b], 3);
+    equal("chips: overflow chip is removed", uncapped.removed.join(","), "ses_c," + ChipDiff.OVERFLOW);
+    equal("chips: overflow count cleared", uncapped.overflow, 0);
+
+    // nothing running: the idle chip takes over, and leaves again
+    let idle = ChipDiff.plan(["ses_a"], [], 3);
+    equal("chips: idle chip replaces the session", idle.order.join(","), ChipDiff.IDLE);
+    equal("chips: idle removes the session", idle.removed.join(","), "ses_a");
+    check("chips: idle flag", idle.idle === true);
+    let waking = ChipDiff.plan([ChipDiff.IDLE], [a], 3);
+    equal("chips: session replaces the idle chip", waking.removed.join(","), ChipDiff.IDLE);
+    equal("chips: session is added", waking.added.join(","), "ses_a");
+    check("chips: no longer idle", waking.idle === false);
+
+    // the limit is at least one chip, and markers are not sessions
+    equal("chips: zero limit still shows one", ChipDiff.plan([], [a, b], 0).order.join(","), "ses_a," + ChipDiff.OVERFLOW);
+    check("chips: markers are recognised", ChipDiff.isMarker(ChipDiff.IDLE) && ChipDiff.isMarker(ChipDiff.OVERFLOW));
+    check("chips: session ids are not markers", ChipDiff.isMarker("ses_a") === false);
+    equal("chips: session lookup by id", ChipDiff.sessionFor("ses_b", [a, b]).title, "Second");
+    equal("chips: session lookup for a marker", ChipDiff.sessionFor(ChipDiff.OVERFLOW, [a, b]), null);
+    equal("chips: session lookup for something gone", ChipDiff.sessionFor("ses_z", [a, b]), null);
+}
+
+// ----------------------------------------------------------------- easing
+
+function testEasing() {
+    equal("easing: start of a curve", Easing.progress(0, 250, Easing.EASE_OUT), 0);
+    equal("easing: end of a curve", Easing.progress(250, 250, Easing.EASE_OUT), 1);
+    equal("easing: past the end", Easing.progress(400, 250, Easing.EASE_IN), 1);
+    equal("easing: zero duration is instantaneous", Easing.progress(0, 0, Easing.EASE_OUT), 1);
+    equal("easing: linear half way", Easing.progress(50, 100, Easing.LINEAR), 0.5);
+    equal("easing: ease-out half way", Easing.progress(50, 100, Easing.EASE_OUT), 0.75);
+    equal("easing: ease-in half way", Easing.progress(50, 100, Easing.EASE_IN), 0.25);
+    equal("easing: ease-out is ahead of ease-in early", Easing.progress(20, 100, Easing.EASE_OUT) > Easing.progress(20, 100, Easing.EASE_IN), true);
+    equal("easing: interpolate", Easing.value(-48, 0, 0.5), -24);
+    equal("easing: interpolate upwards", Easing.value(0, 255, 0.25), 63.75);
+
+    // a finished chip flashes inverted three times and ends up normal again
+    let schedule = Easing.blinkSchedule(3, 70, 70);
+    equal("easing: blink steps", schedule.length, 6);
+    equal("easing: blink starts inverted", schedule[0].inverted, true);
+    equal("easing: blink alternates", schedule[1].inverted, false);
+    equal("easing: blink ends normal", schedule[schedule.length - 1].inverted, false);
+    equal("easing: three inverted flashes", schedule.filter(function (s) { return s.inverted; }).length, 3);
+    equal("easing: blink step times", schedule.map(function (s) { return s.at; }).join(","), "0,70,140,210,280,350");
+    equal("easing: blink duration", Easing.blinkDuration(3, 70, 70), 420);
+    equal("easing: blink duration of zero cycles is one flash", Easing.blinkDuration(0, 70, 70), 140);
+
+    // the curves only ever move forward
+    let monotonic = true;
+    let previous = -1;
+    for (let ms = 0; ms <= 250; ms += 10) {
+        let p = Easing.progress(ms, 250, Easing.EASE_OUT);
+        if (p < previous) {
+            monotonic = false;
+        }
+        previous = p;
+    }
+    check("easing: ease-out never goes backwards", monotonic, "");
 }
 
 // ------------------------------------------------------------- discovery
@@ -236,6 +372,19 @@ function testProcDiscovery() {
     equal("proc: source", byPort[fixedPort] && byPort[fixedPort].source, "proc");
     check("proc: pid recorded", byPort[fixedPort] && byPort[fixedPort].pid > 0, String(byPort[fixedPort] && byPort[fixedPort].pid));
     check("proc: our own process is not reported", ports.indexOf(Procfs.selfPid()) < 0, String(Procfs.selfPid()));
+}
+
+// A shell command line that mentions a kilo server (and inherits KILO_* from the
+// environment) must not be reported as a server.
+function testShellsAreNotServers() {
+    let fakePort = parseInt(env("KILO_TEST_FAKE_SHELL_PORT"), 10);
+    let servers = Discovery.fromProc({ includeMocks: true });
+    let ports = servers.map(function (server) { return server.port; });
+    check("proc: a shell mentioning a server is not one", ports.indexOf(fakePort) < 0, ports.join(","));
+
+    let commands = servers.map(function (server) { return server.cmdline || ""; });
+    let shells = commands.filter(function (cmdline) { return /(^|\/)(bash|sh|dash|zsh) /.test(cmdline); });
+    equal("proc: no shell command lines reported", shells.join(" | "), "");
 }
 
 async function testMocksAreSkipped() {
@@ -523,6 +672,8 @@ async function run() {
 
     testFormat();
     testAgentIcon();
+    testChipDiff();
+    testEasing();
     testServerSpecs();
     testDaemonFile();
 
@@ -530,6 +681,7 @@ async function run() {
     check("proc: finds kilo-ish processes at all", anyKilo.length >= 2, "found " + anyKilo.length);
     testProcDiscovery();
     testMerge();
+    testShellsAreNotServers();
     await testMocksAreSkipped();
 
     await testClient();

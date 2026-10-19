@@ -109,6 +109,7 @@
                 "chip-title-length",
                 "chip-show-title",
                 "chips-max",
+                "animate-chips",
                 "hide-when-idle"
             ]
         },
@@ -312,5 +313,11 @@
             "Lucide brain-circuit": "lucide-brain-circuit"
         },
         "tooltip": "Third-party robot/agent icons shipped in the applet's icons/ directory; the same icon is shown for every agent."
+    },
+    "animate-chips": {
+        "type": "switch",
+        "default": true,
+        "description": "Animate new and finished agents",
+        "tooltip": "A session that starts slides in from the left. One that finishes flashes inverted three times, then slides out to the left. Turn off for instant changes."
     }
 }

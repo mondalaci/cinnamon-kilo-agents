@@ -167,9 +167,11 @@ function pidSocketInodes(pid) {
     return inodes;
 }
 
-// Every TCP port a process is listening on (needed for `serve --port 0`).
-function pidListeningPorts(pid) {
-    let inodes = listenInodes();
+// Every TCP port a process is listening on (needed for `serve --port 0`, and to
+// confirm that a process claiming a --port really serves it). `knownListeners`
+// lets a caller share one /proc/net/tcp scan between several pids.
+function pidListeningPorts(pid, knownListeners) {
+    let inodes = knownListeners || listenInodes();
     let sockets = pidSocketInodes(pid);
     let ports = [];
     for (let i = 0; i < sockets.length; i++) {

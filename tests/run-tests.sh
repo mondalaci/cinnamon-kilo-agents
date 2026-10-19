@@ -116,6 +116,13 @@ MOCK_PASSWORD=daemon-secret "$KILO_BIN" serve --port "$DAEMON_PORT" --hostname 1
     --state "$DAEMON_STATE" --require-auth >"$WORK/mock-d.log" 2>&1 &
 PIDS+=($!)
 
+# 4. a shell whose command line merely mentions a kilo server: it must never be
+#    mistaken for one (a terminal running `kilo serve --port N` looks the same)
+FAKE_SHELL_PORT=$(free_port)
+env KILO=1 KILO_MACHINE_ID=test bash -c "exec -a 'kilo serve --port $FAKE_SHELL_PORT' sleep 60" >"$WORK/fake-shell.log" 2>&1 &
+PIDS+=($!)
+export KILO_TEST_FAKE_SHELL_PORT="$FAKE_SHELL_PORT"
+
 # wait for both dynamic and fixed ports to answer
 for _ in $(seq 1 100); do
     if [ -f "$WORK/port-b" ] && curl -s -o /dev/null "http://127.0.0.1:$FIXED_PORT/project"; then

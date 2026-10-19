@@ -18,6 +18,18 @@ const Procfs = imports.lib.procfs;
 var DEFAULT_HOST = "127.0.0.1";
 var DEFAULT_USERNAME = "kilo";
 
+// argv[0] of a shell is never a kilo server, even when its command line mentions
+// `serve --port N` (a terminal running that command looks otherwise identical).
+var SHELLS = ["sh", "bash", "dash", "zsh", "ksh", "fish", "csh", "tcsh", "busybox"];
+
+function isShell(argv) {
+    if (!argv || argv.length === 0) {
+        return false;
+    }
+    let program = argv[0].split("/").pop().toLowerCase();
+    return SHELLS.indexOf(program) >= 0;
+}
+
 function defaultDaemonFile() {
     return GLib.build_filenamev([GLib.get_home_dir(), ".local", "state", "kilo", "daemon.json"]);
 }
@@ -182,13 +194,14 @@ function fromProc(options) {
     let self = Procfs.selfPid();
     let servers = [];
     let pids = Procfs.pidList();
+    let listeners = Procfs.listenInodes();
     for (let i = 0; i < pids.length; i++) {
         let pid = pids[i];
         if (pid === self) {
             continue;
         }
         let argv = Procfs.cmdline(pid);
-        if (!argv || !hasToken(argv, "serve")) {
+        if (!argv || !hasToken(argv, "serve") || isShell(argv)) {
             continue;
         }
         let env = Procfs.environ(pid);
@@ -204,17 +217,19 @@ function fromProc(options) {
         if (hostname) {
             hosts.push(hostname === "0.0.0.0" ? DEFAULT_HOST : hostname);
         }
+        // What the process actually listens on: `--port 0` means "pick one", and
+        // a claimed port must be backed by a real listening socket, otherwise the
+        // process is only talking about a server rather than being one.
+        let listening = Procfs.pidListeningPorts(pid, listeners);
         let port = parseInt(flagValue(argv, "--port") || "", 10);
         if (isNaN(port) || port <= 0) {
-            // `--port 0` means "pick one": ask the kernel what it picked.
-            let ports = Procfs.pidListeningPorts(pid);
-            if (opts.log && ports.length === 0) {
+            if (opts.log && listening.length === 0) {
                 opts.log("kilo-agents: pid " + pid + " speaks serve but listens on nothing (yet)");
             }
-            for (let p = 0; p < ports.length; p++) {
+            for (let p = 0; p < listening.length; p++) {
                 let server = makeServer({
                     host: hosts.length ? hosts[0] : DEFAULT_HOST,
-                    port: ports[p],
+                    port: listening[p],
                     username: env.KILO_SERVER_USERNAME,
                     password: env.KILO_SERVER_PASSWORD,
                     pid: pid,
@@ -225,6 +240,13 @@ function fromProc(options) {
                 if (server) {
                     servers.push(server);
                 }
+            }
+            continue;
+        }
+
+        if (listening.indexOf(port) < 0) {
+            if (opts.log) {
+                opts.log("kilo-agents: pid " + pid + " claims --port " + port + " but does not listen on it");
             }
             continue;
         }

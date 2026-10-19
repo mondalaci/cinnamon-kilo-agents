@@ -27,6 +27,10 @@ var ICONS = [
 // Theme icon used if the shipped file cannot be loaded.
 var FALLBACK_ICON_NAME = "avatar-default-symbolic";
 
+// Suffix of the "negative" variant used by the finishing blink: same artwork,
+// drawn in the panel background tone.
+var INVERTED_SUFFIX = "-inverted";
+
 function ids() {
     return ICONS.map(function (icon) { return icon.id; });
 }
@@ -63,4 +67,10 @@ function options() {
 function pathFor(id, appletPath) {
     let name = has(id) ? id : DEFAULT_ID;
     return appletPath.replace(/\/+$/, "") + "/" + DIR + "/" + name + ".svg";
+}
+
+// Same, for the inverted variant shown while a finished chip blinks.
+function invertedPathFor(id, appletPath) {
+    let name = has(id) ? id : DEFAULT_ID;
+    return appletPath.replace(/\/+$/, "") + "/" + DIR + "/" + name + INVERTED_SUFFIX + ".svg";
 }
