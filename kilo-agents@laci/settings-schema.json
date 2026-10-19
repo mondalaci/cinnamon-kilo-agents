@@ -1,0 +1,316 @@
+{
+    "layout": {
+        "type": "layout",
+        "pages": [
+            "page-general",
+            "page-discovery",
+            "page-panel",
+            "page-menu",
+            "page-actions"
+        ],
+        "page-general": {
+            "type": "page",
+            "title": "General",
+            "sections": [
+                "section-refresh",
+                "section-limits"
+            ]
+        },
+        "section-refresh": {
+            "type": "section",
+            "title": "Refresh",
+            "keys": [
+                "poll-interval",
+                "metadata-refresh"
+            ]
+        },
+        "section-limits": {
+            "type": "section",
+            "title": "Limits",
+            "keys": [
+                "max-sessions",
+                "max-directories"
+            ]
+        },
+        "page-discovery": {
+            "type": "page",
+            "title": "Servers",
+            "sections": [
+                "section-discovery",
+                "section-extra"
+            ]
+        },
+        "section-discovery": {
+            "type": "section",
+            "title": "Discovery",
+            "keys": [
+                "use-daemon",
+                "daemon-file",
+                "use-proc",
+                "discovery-info"
+            ]
+        },
+        "section-extra": {
+            "type": "section",
+            "title": "Additional servers",
+            "keys": [
+                "extra-servers",
+                "extra-servers-info"
+            ]
+        },
+        "page-panel": {
+            "type": "page",
+            "title": "Panel",
+            "sections": [
+                "section-chips",
+                "section-tooltip"
+            ]
+        },
+        "page-menu": {
+            "type": "page",
+            "title": "Menu",
+            "sections": [
+                "section-menu"
+            ]
+        },
+        "section-menu": {
+            "type": "section",
+            "title": "Session rows",
+            "keys": [
+                "menu-title-length",
+                "menu-show-model",
+                "menu-show-directory",
+                "menu-show-cost",
+                "menu-show-idle-servers"
+            ]
+        },
+        "page-actions": {
+            "type": "page",
+            "title": "Actions",
+            "sections": [
+                "section-actions"
+            ]
+        },
+        "section-actions": {
+            "type": "section",
+            "title": "Session actions",
+            "keys": [
+                "click-action",
+                "click-command",
+                "click-command-info"
+            ]
+        },
+        "section-chips": {
+            "type": "section",
+            "title": "Agent chips",
+            "keys": [
+                "agent-icon",
+                "chip-icon-size",
+                "chip-title-length",
+                "chip-show-title",
+                "chips-max",
+                "hide-when-idle"
+            ]
+        },
+        "section-tooltip": {
+            "type": "section",
+            "title": "Tooltip",
+            "keys": [
+                "tooltip-lines",
+                "chips-info"
+            ]
+        }
+    },
+    "poll-interval": {
+        "type": "spinbutton",
+        "default": 2,
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "units": "s",
+        "description": "Poll interval",
+        "tooltip": "How often every kilo server is asked which sessions are working."
+    },
+    "metadata-refresh": {
+        "type": "spinbutton",
+        "default": 30,
+        "min": 5,
+        "max": 600,
+        "step": 5,
+        "units": "s",
+        "description": "Session details refresh",
+        "tooltip": "How long the title/agent/model information of a session and the project list are cached before being fetched again."
+    },
+    "max-sessions": {
+        "type": "spinbutton",
+        "default": 20,
+        "min": 1,
+        "max": 100,
+        "step": 5,
+        "units": "sessions",
+        "description": "Sessions fetched per project",
+        "tooltip": "Upper bound on the session list requested for each project directory."
+    },
+    "max-directories": {
+        "type": "spinbutton",
+        "default": 60,
+        "min": 1,
+        "max": 300,
+        "step": 10,
+        "units": "projects",
+        "description": "Projects checked per server",
+        "tooltip": "Upper bound on the project directories swept for active sessions, most recently used first."
+    },
+    "use-daemon": {
+        "type": "switch",
+        "default": true,
+        "description": "Read the kilo daemon discovery file",
+        "tooltip": "Uses the discovery file written by 'kilo daemon', which contains the port and credentials of the shared server."
+    },
+    "daemon-file": {
+        "type": "entry",
+        "default": "",
+        "description": "Discovery file",
+        "dependency": "use-daemon",
+        "tooltip": "Leave empty for ~/.local/state/kilo/daemon.json"
+    },
+    "use-proc": {
+        "type": "switch",
+        "default": true,
+        "description": "Scan for running kilo servers",
+        "tooltip": "Finds every 'kilo serve' process of this user (including the ones started by the VS Code extension) and reads its port and password. Needed for session status, which only the process running an agent knows."
+    },
+    "discovery-info": {
+        "type": "label",
+        "description": "Session status is kept in the memory of the kilo server process that runs an agent, so this applet queries every server it can find on this machine and merges the answers."
+    },
+    "extra-servers": {
+        "type": "textview",
+        "default": "",
+        "height": 120,
+        "description": "Additional servers",
+        "tooltip": "One per line: host:port or host:port:username:password"
+    },
+    "extra-servers-info": {
+        "type": "label",
+        "description": "Useful for a server on another machine or one whose port is fixed in a script."
+    },
+    "tooltip-lines": {
+        "type": "spinbutton",
+        "default": 6,
+        "min": 0,
+        "max": 20,
+        "step": 1,
+        "units": "sessions",
+        "description": "Sessions listed in the tooltip"
+    },
+    "menu-title-length": {
+        "type": "spinbutton",
+        "default": 48,
+        "min": 16,
+        "max": 120,
+        "step": 4,
+        "units": "characters",
+        "description": "Session title length"
+    },
+    "menu-show-model": {
+        "type": "switch",
+        "default": true,
+        "description": "Show the model in session rows"
+    },
+    "menu-show-directory": {
+        "type": "switch",
+        "default": true,
+        "description": "Show the project directory in session details"
+    },
+    "menu-show-cost": {
+        "type": "switch",
+        "default": false,
+        "description": "Show cost and token usage in session details"
+    },
+    "menu-show-idle-servers": {
+        "type": "switch",
+        "default": true,
+        "description": "List servers without active sessions"
+    },
+    "click-action": {
+        "type": "combobox",
+        "default": "copy",
+        "description": "Action for a session",
+        "options": {
+            "Copy the session ID": "copy",
+            "Run a command": "command",
+            "Do nothing": "none"
+        }
+    },
+    "click-command": {
+        "type": "entry",
+        "default": "x-terminal-emulator -e kilo -s {id}",
+        "dependency": "click-action=command",
+        "description": "Command",
+        "tooltip": "Placeholders: {id}, {title}, {dir}, {agent}, {model}, {status}"
+    },
+    "click-command-info": {
+        "type": "label",
+        "description": "The command runs from the applet when you use 'Run command for this session' in a session's submenu."
+    },
+    "chip-icon-size": {
+        "type": "spinbutton",
+        "default": 48,
+        "min": 24,
+        "max": 96,
+        "step": 8,
+        "units": "pixels",
+        "description": "Agent icon size",
+        "tooltip": "Icon height in the panel; the icon is vector artwork, so any size stays smooth."
+    },
+    "chip-title-length": {
+        "type": "spinbutton",
+        "default": 18,
+        "min": 4,
+        "max": 60,
+        "step": 2,
+        "units": "characters",
+        "description": "Shortened title length"
+    },
+    "chip-show-title": {
+        "type": "switch",
+        "default": true,
+        "description": "Show the shortened title next to the icon"
+    },
+    "chips-max": {
+        "type": "spinbutton",
+        "default": 3,
+        "min": 1,
+        "max": 12,
+        "step": 1,
+        "units": "agents",
+        "description": "Agents shown side by side",
+        "tooltip": "Further active agents are counted in a +N chip."
+    },
+    "hide-when-idle": {
+        "type": "switch",
+        "default": false,
+        "description": "Hide the panel icon when no agent is working"
+    },
+    "chips-info": {
+        "type": "label",
+        "description": "Every active agent shows the same icon next to its shortened title. The menu lists every active session with its project, agent, model and status. The applet never shows desktop notifications."
+    },
+    "agent-icon": {
+        "type": "combobox",
+        "default": "lucide-bot",
+        "description": "Agent icon",
+        "options": {
+            "Lucide bot": "lucide-bot",
+            "Material smart_toy": "material-smart-toy",
+            "Tabler robot": "tabler-robot",
+            "Phosphor robot": "phosphor-robot",
+            "Bootstrap robot": "bootstrap-robot",
+            "Material robot_2": "material-robot-2",
+            "Lucide cpu": "lucide-cpu",
+            "Lucide brain-circuit": "lucide-brain-circuit"
+        },
+        "tooltip": "Third-party robot/agent icons shipped in the applet's icons/ directory; the same icon is shown for every agent."
+    }
+}

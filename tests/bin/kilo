@@ -1,0 +1,15 @@
+#!/bin/sh
+# Test double for the kilo binary.
+#
+# It looks like a real server to /proc discovery: argv contains the `serve`
+# subcommand and the environment carries KILO_* variables, which is exactly
+# what lib/discovery.js keys on.
+export KILO=1
+# Marks this process as a test double: the applet's /proc discovery skips it, so
+# running the test suite never puts mock sessions in a live panel. The suite
+# itself opts back in with { includeMocks: true }.
+export KILO_AGENTS_MOCK=1
+if [ -n "${MOCK_PASSWORD:-}" ]; then
+    export KILO_SERVER_PASSWORD="$MOCK_PASSWORD"
+fi
+exec python3 "$MOCK_SERVER" "$@"

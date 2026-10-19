@@ -1,0 +1,26 @@
+/* Kilo Agents applet styling */
+
+.kilo-agents-chips {
+    spacing: 8px;
+}
+
+.kilo-agents-chip {
+    spacing: 4px;
+}
+
+.kilo-agents-chip-title {
+    font-size: 0.95em;
+}
+
+.kilo-agents-chip-overflow {
+    font-size: 0.95em;
+    opacity: 0.8;
+}
+
+.kilo-agents-chip-idle {
+    opacity: 0.55;
+}
+
+.kilo-agents-menu-info {
+    font-weight: bold;
+}
