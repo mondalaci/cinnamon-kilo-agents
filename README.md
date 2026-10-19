@@ -12,9 +12,8 @@ session title.
   <img src="docs/panel.png" alt="the applet in the panel" width="520">
 </p>
 
-- **Icon** - a ready-made robot/agent icon (Lucide's `bot` by default),
-  rendered as a smooth scalable icon. Every agent shows the same icon, whatever
-  model it runs; pick a different one in the settings.
+- **Icon** - a ready-made robot/agent icon (Lucide's `bot`), rendered as a
+  smooth scalable icon. Every agent shows the same icon, whatever model it runs.
 - **Title** - the session's title, shortened to the configured length.
 - **`+N`** - more agents are active than the chip limit allows.
 - **Motion** - a session that starts slides in from the left and fades in. One
@@ -104,33 +103,21 @@ server that requires them yields 401 and that server is reported unreachable.
 
 ## Agent icon
 
-The chip icon is a ready-made third-party robot/agent icon, shipped in
-`icons/` and rendered as a normal scalable icon (`St.Icon` with the SVG file),
-so it stays smooth at any size - no hand-drawn pixel art.
+The chip icon is a ready-made third-party robot icon, **Lucide's `bot`**
+(ISC licensed, [lucide.dev](https://lucide.dev)), shipped in `icons/` and
+rendered as a normal scalable icon (`St.Icon` with the SVG file), so it stays
+smooth at any size - no hand-drawn pixel art. Every agent shows the same icon,
+regardless of the model it runs.
 
-*Settings -> Panel -> Agent icon* switches between the bundled set:
+There is deliberately no icon chooser: to use a different icon, drop an SVG with
+the same file name into `icons/` and its inverse twin beside it. The files are
+unmodified except for the colour - `currentColor` becomes the panel tone
+`#c6cdd6`, and `icons/lucide-bot-inverted.svg` is the same artwork in the panel
+background tone `#1a1a1a`, which a finished chip flashes. Each file keeps its
+source and licence in a header comment, and the test suite checks that the
+inverted file is the same artwork in the inverse colour.
 
-| Icon | Source | Licence |
-| --- | --- | --- |
-| `lucide-bot.svg` (default) | [Lucide](https://lucide.dev) `bot` | ISC |
-| `material-smart-toy.svg` | [Material Symbols](https://fonts.google.com/icons) `smart_toy` | Apache-2.0 |
-| `tabler-robot.svg` | [Tabler Icons](https://tabler.io/icons) `robot` | MIT |
-| `phosphor-robot.svg` | [Phosphor Icons](https://phosphoricons.com) `robot` | MIT |
-| `bootstrap-robot.svg` | [Bootstrap Icons](https://icons.getbootstrap.com) `robot` | MIT |
-| `material-robot-2.svg` | Material Symbols `robot_2` | Apache-2.0 |
-| `lucide-cpu.svg` | Lucide `cpu` | ISC |
-| `lucide-brain-circuit.svg` | Lucide `brain-circuit` | ISC |
-
-The files are unmodified except for the colour: `currentColor` is replaced with
-the panel tone `#c6cdd6` so they read on a dark panel. Each icon also ships an
-`-inverted` twin (`#1a1a1a`, the panel background tone) which the finishing
-blink flashes; `lib/agenticon.js` resolves both, and the test suite checks that
-the inverted file is the same artwork in the inverse colour. Edit the
-`stroke`/`fill` attribute in `icons/*.svg` to recolour them, or drop another SVG
-with the same name into `icons/`. Each file keeps its source and licence in a
-header comment.
-
-If the selected file cannot be loaded, the applet falls back to the theme's
+If the file cannot be loaded, the applet falls back to the theme's
 `avatar-default-symbolic` icon and logs the reason.
 
 ## Settings
@@ -139,7 +126,7 @@ If the selected file cannot be loaded, the applet falls back to the theme's
 | --- | --- |
 | General | poll interval (2 s), session details refresh (30 s), sessions per project (20), projects per server (60) |
 | Servers | daemon file on/off + path, `/proc` scan on/off, additional servers |
-| Panel | agent icon, icon size (48), shortened title length (18), show the title, agents shown side by side (3), animate new/finished agents, hide when idle |
+| Panel | icon size (48), shortened title length (18), show the title, agents shown side by side (3), animate new/finished agents, hide when idle |
 | Menu | session title length, show model, show directory, show cost/tokens, list idle servers |
 | Actions | session action: copy the session ID, run a command (`{id} {title} {dir} {agent} {model} {status}`), or nothing |
 
@@ -155,8 +142,9 @@ kilo-agents@laci/         the applet (installed as one directory)
   lib/client.js           async HTTP client for both libsoup 3 and libsoup 2.4
   lib/monitor.js          poll loop, directory sweep, per-server merge
   lib/format.js           tooltip/menu formatting (pure functions)
-  lib/agenticon.js        which bundled agent icon to use (pure, testable)
-  icons/*.svg             the ready-made agent icons, tinted to the panel tone
+  lib/agenticon.js        resolves the icon file paths (pure, testable)
+  icons/lucide-bot.svg    the agent icon (Lucide bot, ISC), tinted to the panel tone
+  icons/lucide-bot-inverted.svg   the same artwork for the finishing blink
   settings-schema.json    settings UI definition
 docs/panel.png
 install.sh uninstall.sh
@@ -165,6 +153,7 @@ tests/
   mock-kilo-server.py     server double with the real payload shapes
   bin/kilo                wrapper making the mock look like `kilo serve`
   test-lib.js             unit + integration tests (libsoup 3)
+  readme-screenshot.sh    regenerates docs/panel.png from a running applet
   test-client-soup2.js    the same client on libsoup 2.4 (Cinnamon 5.x)
 ```
 
@@ -179,11 +168,10 @@ on an OS-assigned `--port 0` port, one announced by a daemon discovery file)
 and covers:
 
 - panel/menu formatting helpers (titles, durations, cost, tooltips)
-- the agent icons: that every bundled file exists, is an SVG, still carries its
-  licence note and has been tinted (no `currentColor` left), that every icon has
-  an inverted twin with the same artwork in the inverse colour, that the icon
-  lookup cannot escape the applet directory and falls back sensibly, and that
-  the settings dropdown matches the bundled set and the default
+- the agent icon: that the file exists, is an SVG, carries its licence note, is
+  tinted (no `currentColor` left) and has an inverted twin with the same artwork
+  in the inverse colour, that its paths cannot escape the applet directory, and
+  that the settings offer no icon chooser any more
 - the chip animation timing: the easing curves and the blink schedule (three
   inverted flashes, ending back in the normal look)
 - that the applet's discovery skips the test doubles while they are running and
@@ -213,13 +201,14 @@ and covers:
 - `St.Icon` multiplies `icon_size` by the stage scale factor while the applet's
   icon size setting is plain pixels; `createAgentIcon` divides it back out, so
   a 48 px setting really is 48 px on screen (24 logical units at scale 2).
-- `docs/panel.png` shows example titles, not a live session. To take such a
-  screenshot without touching the running applet's data, start a mock with
-  example sessions (`tests/bin/kilo serve --port 45999 --state <file>`, marked
-  so it is invisible to `/proc` discovery), add `127.0.0.1:45999` to
-  *Settings -> Servers -> Additional servers*, capture the row, then clear the
-  setting again. Never inject a model into a live applet: the panel keeps
-  showing it until the applet is reloaded.
+- `docs/panel.png` shows example titles, not a live session, and is generated
+  by `tests/readme-screenshot.sh`: it starts a marked mock (invisible to `/proc`
+  discovery), plugs it in through *Settings -> Servers -> Additional servers* so
+  the applet renders it through its normal data path, waits for the row to
+  settle, and refuses to write the image unless it is actually bright enough
+  (an off-target crop once produced a nearly black README screenshot). Never
+  inject a model into a live applet: the panel keeps showing it until the applet
+  is reloaded.
 - `node --check <file>` validates the syntax of every JS file.
 
 ## Limitations

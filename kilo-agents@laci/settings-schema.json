@@ -104,7 +104,6 @@
             "type": "section",
             "title": "Agent chips",
             "keys": [
-                "agent-icon",
                 "chip-icon-size",
                 "chip-title-length",
                 "chip-show-title",
@@ -296,23 +295,7 @@
     },
     "chips-info": {
         "type": "label",
-        "description": "Every active agent shows the same icon next to its shortened title. The menu lists every active session with its project, agent, model and status. The applet never shows desktop notifications."
-    },
-    "agent-icon": {
-        "type": "combobox",
-        "default": "lucide-bot",
-        "description": "Agent icon",
-        "options": {
-            "Lucide bot": "lucide-bot",
-            "Material smart_toy": "material-smart-toy",
-            "Tabler robot": "tabler-robot",
-            "Phosphor robot": "phosphor-robot",
-            "Bootstrap robot": "bootstrap-robot",
-            "Material robot_2": "material-robot-2",
-            "Lucide cpu": "lucide-cpu",
-            "Lucide brain-circuit": "lucide-brain-circuit"
-        },
-        "tooltip": "Third-party robot/agent icons shipped in the applet's icons/ directory; the same icon is shown for every agent."
+        "description": "Every active agent shows the same icon next to its shortened title. The icon is Lucide's bot, shipped with the applet; replace icons/lucide-bot.svg to change it. The menu lists every active session with its project, agent, model and status. The applet never shows desktop notifications."
     },
     "animate-chips": {
         "type": "switch",

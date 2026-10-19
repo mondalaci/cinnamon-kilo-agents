@@ -57,8 +57,8 @@ function iconSizeFor(pixels) {
 
 // The ready-made agent icon, rendered as a scalable icon so it stays smooth at
 // any size. Falls back to a theme icon if the shipped file cannot be loaded.
-function createAgentIcon(id, size) {
-    let path = AgentIcon.pathFor(id, APPLET_PATH);
+function createAgentIcon(size) {
+    let path = AgentIcon.pathFor(APPLET_PATH);
     let iconSize = iconSizeFor(size);
     try {
         if (Gio.file_new_for_path(path).query_exists(null)) {
@@ -136,7 +136,6 @@ class KiloAgentsApplet extends Applet.Applet {
 
         this.settings.bind("chips-max", "chipsMax", this._onAppearanceChanged);
         this.settings.bind("chip-title-length", "chipTitleLength", this._onAppearanceChanged);
-        this.settings.bind("agent-icon", "agentIcon", this._onAppearanceChanged);
         this.settings.bind("chip-icon-size", "chipIconSize", this._onAppearanceChanged);
         this.settings.bind("chip-show-title", "chipShowTitle", this._onAppearanceChanged);
         this.settings.bind("hide-when-idle", "hideWhenIdle", this._onAppearanceChanged);
@@ -211,7 +210,7 @@ class KiloAgentsApplet extends Applet.Applet {
     _renderChips(model) {
         let sessions = model ? model.sessions : [];
         let appearance = [this.chipsMax, this.chipTitleLength, this.chipIconSize, this.chipShowTitle,
-                          this.hideWhenIdle, this.agentIcon].join("|");
+                          this.hideWhenIdle].join("|");
 
         if (appearance !== this._chipsAppearance) {
             // A visual setting changed: rebuild instantly, nothing to animate.
@@ -299,10 +298,10 @@ class KiloAgentsApplet extends Applet.Applet {
         chip.set_y_align(Clutter.ActorAlign.CENTER);
         chip.set_x_align(Clutter.ActorAlign.CENTER);
 
-        chip.add_child(createAgentIcon(this.agentIcon, this.chipIconSize));
+        chip.add_child(createAgentIcon(this.chipIconSize));
         chip._kiloIcon = chip.get_children()[0];
-        chip._kiloIconPath = AgentIcon.pathFor(this.agentIcon, APPLET_PATH);
-        chip._kiloIconPathInverted = AgentIcon.invertedPathFor(this.agentIcon, APPLET_PATH);
+        chip._kiloIconPath = AgentIcon.pathFor(APPLET_PATH);
+        chip._kiloIconPathInverted = AgentIcon.invertedPathFor(APPLET_PATH);
 
         if (session && this.chipShowTitle) {
             let label = new St.Label({

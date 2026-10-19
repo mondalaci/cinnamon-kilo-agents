@@ -121,95 +121,39 @@ function testFormat() {
 // ------------------------------------------------------------ agent icons
 
 function testAgentIcon() {
-    let ids = AgentIcon.ids();
-    check("icons: shipped set", ids.length === 8, ids.join(","));
-    check("icons: default is one of them", ids.indexOf(AgentIcon.DEFAULT_ID) >= 0, AgentIcon.DEFAULT_ID);
-    check("icons: default is the chosen one", AgentIcon.DEFAULT_ID === "lucide-bot", AgentIcon.DEFAULT_ID);
-    equal("icons: ids are unique", Object.keys(ids.reduce(function (acc, id) { acc[id] = 1; return acc; }, {})).length, ids.length);
+    let normal = AgentIcon.pathFor(APPLET_DIR);
+    let inverted = AgentIcon.invertedPathFor(APPLET_DIR);
+    let svg = readFile(normal);
+    let svgInverted = readFile(inverted);
 
-    // the settings dropdown offers exactly the shipped icons
-    let options = AgentIcon.options();
-    equal("icons: dropdown option count", Object.keys(options).length, ids.length);
-    let offered = Object.keys(options).map(function (label) { return options[label]; }).sort();
-    equal("icons: dropdown matches the shipped ids", offered.join(","), ids.slice().sort().join(","));
+    check("icons: the icon file exists", svg !== null, normal);
+    check("icons: the icon is an SVG", !!svg && svg.indexOf("<svg") >= 0, "");
+    check("icons: the icon carries its licence", !!svg && svg.indexOf("(ISC)") >= 0, "");
+    check("icons: the icon is tinted (no currentColor)", !!svg && svg.indexOf("currentColor") < 0, "");
+    check("icons: the icon is in the panel tone", !!svg && svg.indexOf("#c6cdd6") >= 0, "");
 
-    // every icon has an inverted twin, same artwork in the panel background tone
-    let artwork = function (svg) {
-        return svg.split("\n").filter(function (line) { return line.indexOf("<!--") < 0; }).join("\n");
+    check("icons: the inverted twin exists", svgInverted !== null, inverted);
+    check("icons: the inverted twin is an SVG", !!svgInverted && svgInverted.indexOf("<svg") >= 0, "");
+    check("icons: the inverted twin is inverted", !!svgInverted && svgInverted.indexOf("#1a1a1a") >= 0 && svgInverted.indexOf("#c6cdd6") < 0, "");
+
+    let artwork = function (text) {
+        return text.split("\n").filter(function (line) { return line.indexOf("<!--") < 0; }).join("\n");
     };
-    let invertedProblems = [];
-    for (let i = 0; i < ids.length; i++) {
-        let normal = readFile(AgentIcon.pathFor(ids[i], APPLET_DIR));
-        let inverted = readFile(AgentIcon.invertedPathFor(ids[i], APPLET_DIR));
-        if (inverted === null) {
-            invertedProblems.push(ids[i] + ": missing");
-            continue;
-        }
-        if (inverted.indexOf("<svg") < 0) {
-            invertedProblems.push(ids[i] + ": no <svg");
-        } else if (inverted.indexOf("#1a1a1a") < 0) {
-            invertedProblems.push(ids[i] + ": not inverted");
-        } else if (inverted.indexOf("#c6cdd6") >= 0) {
-            invertedProblems.push(ids[i] + ": still has the normal colour");
-        } else if (artwork(inverted).replace(/#1a1a1a/g, "#c6cdd6") !== artwork(normal)) {
-            invertedProblems.push(ids[i] + ": artwork differs from the normal variant");
-        }
-    }
-    equal("icons: inverted variants are the same artwork in inverse colour", invertedProblems.join("; "), "");
-    check("icons: inverted path", AgentIcon.invertedPathFor("lucide-bot", APPLET_DIR).endsWith("icons/lucide-bot-inverted.svg"),
-        AgentIcon.invertedPathFor("lucide-bot", APPLET_DIR));
-    check("icons: inverted path stays inside the applet",
-        AgentIcon.invertedPathFor("nope", APPLET_DIR).indexOf(APPLET_DIR + "/icons/") === 0,
-        AgentIcon.invertedPathFor("nope", APPLET_DIR));
+    equal("icons: the inverted twin is the same artwork", artwork(svgInverted).replace(/#1a1a1a/g, "#c6cdd6"), artwork(svg));
+    equal("icons: the icon name", AgentIcon.ICON_FILE, "lucide-bot");
 
-    // every shipped file exists, is an SVG, and carries a concrete colour
-    let missing = [];
-    let bad = [];
-    let coloured = 0;
-    for (let i = 0; i < ids.length; i++) {
-        let path = AgentIcon.pathFor(ids[i], APPLET_DIR);
-        let text = readFile(path);
-        if (text === null) {
-            missing.push(ids[i]);
-            continue;
-        }
-        let problems = [];
-        if (text.indexOf("<svg") < 0) {
-            problems.push("no <svg");
-        }
-        if (text.indexOf("currentColor") >= 0) {
-            problems.push("still uses currentColor");
-        }
-        if (text.indexOf("#c6cdd6") < 0) {
-            problems.push("not in the panel colour");
-        }
-        if (text.indexOf("licen") < 0 && text.indexOf("(MIT)") < 0 && text.indexOf("(ISC)") < 0 && text.indexOf("Apache") < 0) {
-            problems.push("no licence note");
-        }
-        if (problems.length) {
-            bad.push(ids[i] + ": " + problems.join(", "));
-        } else {
-            coloured++;
-        }
-    }
-    equal("icons: every icon file exists", missing.join(","), "");
-    equal("icons: every icon is a tinted SVG with its licence", bad.join("; "), "");
-    equal("icons: checked files", coloured, ids.length);
-
-    // paths stay inside the applet
-    let path = AgentIcon.pathFor("lucide-bot", APPLET_DIR + "/");
-    check("icons: path is inside the applet", path.indexOf(APPLET_DIR + "/icons/") === 0, path);
-    equal("icons: unknown id falls back to the default", AgentIcon.pathFor("nope", APPLET_DIR),
-        AgentIcon.pathFor(AgentIcon.DEFAULT_ID, APPLET_DIR));
-    equal("icons: labels resolve", AgentIcon.labelFor("lucide-bot"), "Lucide bot");
-    equal("icons: unknown label falls back", AgentIcon.labelFor("nope"), "Lucide bot");
+    // both paths stay inside the applet, whatever the applet path looks like
+    let appletRoot = APPLET_DIR + "/";
+    check("icons: path is inside the applet", normal.indexOf(appletRoot + "icons/") === 0, normal);
+    check("icons: inverted path is inside the applet", inverted.indexOf(appletRoot + "icons/") === 0, inverted);
+    check("icons: path tolerates a trailing slash", AgentIcon.pathFor(APPLET_DIR + "/") === normal, AgentIcon.pathFor(APPLET_DIR + "/"));
     check("icons: theme fallback name", AgentIcon.FALLBACK_ICON_NAME.indexOf("symbolic") > 0, AgentIcon.FALLBACK_ICON_NAME);
 
-    // the settings schema offers the same icons as the module, with the same default
+    // there is no icon chooser: the settings offer a single icon
     let schema = JSON.parse(readFile(APPLET_DIR + "/settings-schema.json"));
-    let schemaIds = Object.keys(schema["agent-icon"].options).map(function (label) { return schema["agent-icon"].options[label]; }).sort();
-    equal("icons: schema options match the module", schemaIds.join(","), ids.slice().sort().join(","));
-    equal("icons: schema default matches", schema["agent-icon"].default, AgentIcon.DEFAULT_ID);
+    check("icons: no icon chooser in the settings", schema["agent-icon"] === undefined, Object.keys(schema).join(","));
+    check("icons: the panel page does not list one",
+        schema.layout["section-chips"].keys.indexOf("agent-icon") < 0, schema.layout["section-chips"].keys.join(","));
 }
 
 // ------------------------------------------------------------ chip changes

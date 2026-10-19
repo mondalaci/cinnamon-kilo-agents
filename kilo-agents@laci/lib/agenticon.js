@@ -1,76 +1,29 @@
-// The agent icon: a ready-made robot/agent icon shipped with the applet.
+// The agent icon: one ready-made robot icon shipped with the applet.
 //
-// The files in icons/ are third-party icons (Lucide, Tabler, Phosphor,
-// Bootstrap Icons, Material Symbols), recoloured to the panel tone. Nothing is
-// drawn in code any more: the applet renders the chosen file as a normal
-// scalable icon, so it stays smooth at any size.
+// icons/lucide-bot.svg is Lucide's "bot" (ISC), recoloured to the panel tone,
+// and icons/lucide-bot-inverted.svg is the same artwork in the panel background
+// tone, which a finished chip flashes. Nothing is drawn in code: the applet
+// renders the file as a normal scalable icon so it stays smooth at any size.
 //
-// This module only decides which file to use; it is pure and importable
-// outside Cinnamon so the test suite can check the shipped artwork.
+// To use a different icon, drop an SVG with the same file name into icons/ (and
+// its inverse twin) - there is deliberately no icon chooser in the settings.
+//
+// This module only resolves paths; it is pure and importable outside Cinnamon
+// so the test suite can check the shipped artwork.
 
+var ICON_FILE = "lucide-bot";
 var DIR = "icons";
-
-var DEFAULT_ID = "lucide-bot";
-
-// Shown in the settings dropdown, in this order.
-var ICONS = [
-    { id: "lucide-bot", label: "Lucide bot" },
-    { id: "material-smart-toy", label: "Material smart_toy" },
-    { id: "tabler-robot", label: "Tabler robot" },
-    { id: "phosphor-robot", label: "Phosphor robot" },
-    { id: "bootstrap-robot", label: "Bootstrap robot" },
-    { id: "material-robot-2", label: "Material robot_2" },
-    { id: "lucide-cpu", label: "Lucide cpu" },
-    { id: "lucide-brain-circuit", label: "Lucide brain-circuit" },
-];
+var INVERTED_SUFFIX = "-inverted";
 
 // Theme icon used if the shipped file cannot be loaded.
 var FALLBACK_ICON_NAME = "avatar-default-symbolic";
 
-// Suffix of the "negative" variant used by the finishing blink: same artwork,
-// drawn in the panel background tone.
-var INVERTED_SUFFIX = "-inverted";
-
-function ids() {
-    return ICONS.map(function (icon) { return icon.id; });
-}
-
-function has(id) {
-    for (let i = 0; i < ICONS.length; i++) {
-        if (ICONS[i].id === id) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function labelFor(id) {
-    for (let i = 0; i < ICONS.length; i++) {
-        if (ICONS[i].id === id) {
-            return ICONS[i].label;
-        }
-    }
-    return ICONS[0].label;
-}
-
-// Settings -> dropdown options: { "Lucide bot": "lucide-bot", ... }
-function options() {
-    let map = {};
-    for (let i = 0; i < ICONS.length; i++) {
-        map[ICONS[i].label] = ICONS[i].id;
-    }
-    return map;
-}
-
 // Absolute path of the icon file, always inside the applet's icons/ directory.
-// An unknown id falls back to the default icon.
-function pathFor(id, appletPath) {
-    let name = has(id) ? id : DEFAULT_ID;
-    return appletPath.replace(/\/+$/, "") + "/" + DIR + "/" + name + ".svg";
+function pathFor(appletPath) {
+    return appletPath.replace(/\/+$/, "") + "/" + DIR + "/" + ICON_FILE + ".svg";
 }
 
 // Same, for the inverted variant shown while a finished chip blinks.
-function invertedPathFor(id, appletPath) {
-    let name = has(id) ? id : DEFAULT_ID;
-    return appletPath.replace(/\/+$/, "") + "/" + DIR + "/" + name + INVERTED_SUFFIX + ".svg";
+function invertedPathFor(appletPath) {
+    return appletPath.replace(/\/+$/, "") + "/" + DIR + "/" + ICON_FILE + INVERTED_SUFFIX + ".svg";
 }
